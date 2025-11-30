@@ -1,0 +1,105 @@
+.layout {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.layout__header {
+    position: sticky;
+    top: 0;
+    background: #a0522d;
+    backdrop-filter: saturate(180%) blur(6px);
+    border-bottom: 1px solid #eee;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.layout__brand {
+    font-weight: 700;
+}
+
+.layout__topnav {
+    display: none;
+    gap: 12px;
+}
+
+.layout__link {
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+
+.layout__link.active {
+    background: #111;
+    color: #fff;
+}
+
+.layout__main {
+    flex: 1;
+    padding: 16px;
+    padding-bottom: 90px;
+}
+
+.layout__bottomnav {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(92%, 480px);
+    background: rgba(10, 10, 10, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 24px;
+    z-index: 10;
+    border-radius: 999px;
+}
+
+.layout__navlink {
+    width: 56px;
+    height: 56px;
+    border-radius: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ddd;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    position: relative;
+}
+
+.layout__navlink svg {
+    width: 26px;
+    height: 26px;
+    fill: currentColor;
+    stroke: currentColor;
+}
+
+.layout__navlink::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 68px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    white-space: nowrap;
+}
+
+.layout__navlink:hover::after,
+.layout__navlink:focus-visible::after {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.layout__navlink--active {
+    background: #c9971a;
+    color: #0f0f0f;
+    transform: translateY(-4px);
+}

@@ -63,7 +63,7 @@ export const SHOPS: ShopInfo[] = [
                 status: 'closingSoon',
                 waitEstimate: '~15 min',
                 capacity: 8,
-                customers: 3,
+                customers: 10,
                 barbers: [
                     { id: 'b3', name: 'Ivo', specialty: 'Navalha quente', status: 'atendimento' },
                 ],

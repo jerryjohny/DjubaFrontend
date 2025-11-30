@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { ReactNode, useRef } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import './styles.css';
 
 type NavItem = {
@@ -43,11 +43,57 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function Layout() {
     const location = useLocation();
+    const navigate = useNavigate();
     const showNav = !location.pathname.startsWith('/shop');
+    const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
+
+    const activeIndex = NAV_ITEMS.findIndex((item) => location.pathname.startsWith(item.to));
+
+    const handleTouchStart = (event: React.TouchEvent) => {
+        if (window.innerWidth > 768) return;
+        const touch = event.touches[0];
+        touchStart.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    };
+
+    const handleTouchEnd = (event: React.TouchEvent) => {
+        if (window.innerWidth > 768) return;
+        const start = touchStart.current;
+        if (!start) return;
+
+        const touch = event.changedTouches[0];
+        const deltaX = touch.clientX - start.x;
+        const deltaY = Math.abs(touch.clientY - start.y);
+        const elapsed = Date.now() - start.time;
+        touchStart.current = null;
+
+        if (Math.abs(deltaX) < 60 || deltaY > 80 || elapsed > 800) {
+            return;
+        }
+
+        if (activeIndex === -1) return;
+
+        const direction = deltaX < 0 ? 1 : -1;
+        const nextIndex = activeIndex + direction;
+        if (nextIndex < 0 || nextIndex >= NAV_ITEMS.length) return;
+        navigate(NAV_ITEMS[nextIndex].to);
+    };
 
     return (
         <div className="layout">
-            <main className="layout__main">
+            <header className="layout__brandbar">
+                <NavLink to="/home" className="layout__brandlink">
+                    <div className="layout__logo-mark">
+                        <img src="/djubalogo.png" alt="Logotipo Djuba" />
+                    </div>
+                    <div className="layout__logo-text">
+                        <strong>Djuba</strong>
+                        <span>Filas inteligentes</span>
+                    </div>
+                </NavLink>
+                <span className="layout__tagline">Chegue sempre na hora</span>
+            </header>
+
+            <main className="layout__main" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
                 <Outlet />
             </main>
 

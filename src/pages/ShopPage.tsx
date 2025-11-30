@@ -176,7 +176,7 @@ export default function ShopPage() {
                                         <p>Próxima posição disponível</p>
                                         <strong>#{queue.customers + 1}</strong>
                                     </div>
-                                    <button type="button" className="shop__slot-button">Reservar</button>
+                                    <button type="button" className="shop__slot-button">Entrar</button>
                                 </div>
                             </article>
                         );

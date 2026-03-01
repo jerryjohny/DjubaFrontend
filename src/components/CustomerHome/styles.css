@@ -4,6 +4,7 @@
     width: min(100%, 960px);
     margin: 0 auto;
     padding-bottom: 32px;
+    color: var(--color-text);
 }
 
 .chome__searchrow {
@@ -14,10 +15,10 @@
 
 .chome__input {
     padding: 10px 12px;
-    border: 1px solid #c9971a;
+    border: 1px solid var(--color-primary);
     border-radius: 12px;
-    background: #fff;
-    color: #c9971a;
+    background: var(--surface);
+    color: var(--color-primary);
     font-weight: 600;
 }
 
@@ -25,14 +26,14 @@
     padding: 10px 16px;
     border-radius: 12px;
     border: none;
-    background: #c9971a;
-    color: #111;
+    background: var(--color-primary);
+    color: var(--color-contrast);
     font-weight: 600;
     transition: background 0.2s ease;
 }
 
 .chome__button:hover {
-    background: #b98910;
+    background: var(--color-primary-strong);
 }
 
 .chome__list {
@@ -51,9 +52,10 @@
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    color: #fff;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    color: var(--color-text-strong);
+    box-shadow: var(--shadow-lifted);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
+    cursor: pointer;
 }
 
 .chome__card:active {
@@ -76,7 +78,7 @@
 
 .chome__meta {
     font-size: 13px;
-    color: #f3f3f3;
+    color: var(--color-muted);
     margin-top: 4px;
 }
 
@@ -94,23 +96,23 @@
 }
 
 .chome__btn-outline {
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    background: rgba(0, 0, 0, 0.35);
-    color: #fff;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-ghost);
+    color: var(--color-text);
 }
 
 .chome__btn-outline:hover {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--surface-muted);
 }
 
 .chome__btn-primary {
     border: none;
-    background: #c9971a;
-    color: #111;
+    background: var(--color-primary);
+    color: var(--color-contrast);
 }
 
 .chome__btn-primary:hover {
-    background: #b98910;
+    background: var(--color-primary-strong);
 }
 
 .chome__flag {
@@ -119,7 +121,7 @@
     bottom: -4px;
     width: 190px;
     height: 150px;
-    background: #c9971a;
+    background: var(--color-primary);
     clip-path: polygon(24% 100%, 100% 30%, 100% 100%);
     display: flex;
     align-items: flex-end;

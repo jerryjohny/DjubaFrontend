@@ -116,23 +116,42 @@ export default function ShopPage() {
                             const base = SAMPLE_CUSTOMERS[i % SAMPLE_CUSTOMERS.length];
                             return { ...base, id: `${queue.id}-${i}` };
                         });
+                        const isFilaUm = index === 0;
+                        const useQueueStyle = isFilaUm || index > 0;
+                        const cardClass = [
+                            "shop__queue-card",
+                            useQueueStyle && "shop__queue-card--secondary",
+                            useQueueStyle && "queue__card",
+                            isFilaUm && "queue__card--highlight",
+                        ]
+                            .filter(Boolean)
+                            .join(" ");
+                        const headerClass = useQueueStyle ? "queue__card-header" : "shop__queue-header";
+                        const statusClass = useQueueStyle
+                            ? `queue__status queue__status--${queue.status}`
+                            : `shop__queue-status shop__queue-status--${queue.status}`;
+                        const avatarsClass = useQueueStyle
+                            ? "shop__queue-avatars queue__avatars"
+                            : "shop__queue-avatars";
+                        const emptyClass = useQueueStyle ? "queue__avatars-empty" : "shop__queue-empty";
+                        const arrowClass = useQueueStyle ? "queue__avatars-arrow" : "shop__queue-arrow";
 
                         return (
-                            <article key={queue.id} className="shop__queue-card">
-                                <header className="shop__queue-header">
+                            <article key={queue.id} className={cardClass}>
+                                <header className={headerClass}>
                                     <div>
                                         <h3>{`Fila ${index + 1} - ${mainBarber}`}</h3>
                                         <p className="shop__queue-meta">
                                             {queue.customers} clientes na fila | Espera estimada {queue.waitEstimate}
                                         </p>
                                     </div>
-                                    <span className={`shop__queue-status shop__queue-status--${queue.status}`}>
+                                    <span className={statusClass}>
                                         {QUEUE_STATUS_LABEL[queue.status]}
                                     </span>
                                 </header>
 
                                 <div
-                                    className="shop__queue-avatars"
+                                    className={avatarsClass}
                                     ref={(el) => {
                                         queueRefs.current[queue.id] = el;
                                         if (el) updateArrow(queue.id);
@@ -140,25 +159,36 @@ export default function ShopPage() {
                                     onScroll={() => updateArrow(queue.id)}
                                 >
                                     {clients.length === 0 ? (
-                                        <span className="shop__queue-empty">Fila vazia no momento</span>
+                                        <span className={emptyClass}>Fila vazia no momento</span>
                                     ) : (
                                         clients.map((client, i) => {
                                             const isCurrent = i === 0;
                                             const isTrade = i === 1; // simulate next client willing to trade
                                             const isExpanded = expandedClientId === client.id;
+                                            const avatarBase = useQueueStyle ? "queue__avatar" : "shop__queue-avatar";
+                                            const avatarExpanded = useQueueStyle
+                                                ? "queue__avatar--expanded"
+                                                : "shop__queue-avatar--expanded";
+                                            const avatarCurrent = useQueueStyle
+                                                ? "queue__avatar--current"
+                                                : "shop__queue-avatar--current";
+                                            const avatarTrade = useQueueStyle
+                                                ? "queue__avatar--trade"
+                                                : "shop__queue-avatar--trade";
+                                            const infoClass = useQueueStyle ? "queue__avatar-info" : "shop__queue-avatar-info";
                                             return (
                                                 <button
                                                     key={client.id}
                                                     type="button"
-                                                    className={`shop__queue-avatar${isCurrent ? " shop__queue-avatar--current" : ""}${
-                                                        isTrade ? " shop__queue-avatar--trade" : ""
-                                                    }${isExpanded ? " shop__queue-avatar--expanded" : ""}`}
+                                                    className={`${avatarBase}${isCurrent ? ` ${avatarCurrent}` : ""}${
+                                                        isTrade ? ` ${avatarTrade}` : ""
+                                                    }${isExpanded ? ` ${avatarExpanded}` : ""}`}
                                                     onClick={() =>
                                                         setExpandedClientId((prev) => (prev === client.id ? null : client.id))
                                                     }
                                                 >
                                                     <img src={client.avatar} alt={`Cliente ${client.name}`} />
-                                                    <div className="shop__queue-avatar-info">
+                                                    <div className={infoClass}>
                                                         <strong>{client.name}</strong>
                                                         <span>{client.phone}</span>
                                                     </div>
@@ -167,7 +197,7 @@ export default function ShopPage() {
                                         })
                                     )}
                                     {canScrollRight[queue.id] && (
-                                        <span className="shop__queue-arrow">{">>"}</span>
+                                        <span className={arrowClass}>{">>"}</span>
                                     )}
                                 </div>
 

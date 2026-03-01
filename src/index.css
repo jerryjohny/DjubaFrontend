@@ -1,16 +1,78 @@
-/* body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+:root {
+  --color-primary: #c9971a;
+  --color-primary-strong: #b98910;
+  --color-text: #f7f3eb;
+  --color-text-strong: #ffffff;
+  --color-muted: rgba(255, 255, 255, 0.78);
+  --color-muted-strong: rgba(255, 255, 255, 0.86);
+  --color-contrast: #0f0f0f;
+
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-soft: rgba(255, 255, 255, 0.06);
+
+  --surface: rgba(0, 0, 0, 0.6);
+  --surface-strong: #141414;
+  --surface-alt: #131313;
+  --surface-muted: rgba(255, 255, 255, 0.08);
+  --surface-ghost: rgba(0, 0, 0, 0.35);
+
+  --input-bg: rgba(0, 0, 0, 0.4);
+  --input-border: #666;
+
+  --shadow-strong: 0 24px 40px rgba(0, 0, 0, 0.25);
+  --shadow-lifted: 0 18px 40px rgba(0, 0, 0, 0.35);
+
+  --nav-bg: rgba(6, 6, 6, 0.85);
+  --nav-border: var(--border-soft);
+  --nav-text: #f7f3eb;
+  --nav-muted: rgba(255, 255, 255, 0.7);
+  --nav-link: #ddd;
+  --bottomnav-bg: rgba(10, 10, 10, 0.75);
+  --tooltip-bg: rgba(0, 0, 0, 0.85);
+
+  --page-bg: radial-gradient(circle at top left, rgba(201, 151, 26, 0.12), transparent 55%),
+    linear-gradient(120deg, rgba(10, 10, 10, 0.94), rgba(0, 0, 0, 0.98));
+  --page-highlight: linear-gradient(140deg, rgba(201, 151, 26, 0.9), rgba(107, 79, 22, 0.85));
+  --card-overlay: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.65));
+
+  color-scheme: dark;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-} */
+body.theme-light {
+  --color-text: #1f1409;
+  --color-text-strong: #0d0d0c;
+  --color-muted: #4d4032;
+  --color-muted-strong: #3a2f23;
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --border-soft: rgba(0, 0, 0, 0.06);
+
+  --surface: #ffffff;
+  --surface-strong: #f6f1e6;
+  --surface-alt: #f4ecdf;
+  --surface-muted: rgba(0, 0, 0, 0.05);
+  --surface-ghost: rgba(0, 0, 0, 0.06);
+
+  --input-bg: #ffffff;
+  --input-border: rgba(0, 0, 0, 0.12);
+
+  --shadow-strong: 0 18px 36px rgba(18, 12, 5, 0.16);
+  --shadow-lifted: 0 12px 26px rgba(18, 12, 5, 0.12);
+
+  --nav-bg: rgba(255, 255, 255, 0.92);
+  --nav-border: rgba(0, 0, 0, 0.06);
+  --nav-text: #1f1307;
+  --nav-muted: #5f4b34;
+  --nav-link: #5f4b34;
+  --bottomnav-bg: rgba(255, 255, 255, 0.9);
+  --tooltip-bg: rgba(34, 26, 14, 0.92);
+
+  --page-bg: radial-gradient(circle at top left, rgba(201, 151, 26, 0.26), transparent 55%),
+    linear-gradient(120deg, #f8f4ec, #f1e7d9);
+  --page-highlight: linear-gradient(140deg, rgba(201, 151, 26, 0.75), rgba(177, 131, 24, 0.65));
+  --card-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(0, 0, 0, 0.25));
+
+  color-scheme: light;
+}
 
 /* Simple reset + defaults */
 * {
@@ -26,8 +88,27 @@ body,
 
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  color: #111;
-  background: #1a1919;
+  color: var(--color-text);
+  background: var(--page-bg);
+  position: relative;
+  overflow-x: hidden;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 50%;
+  left: -25%;
+  width: 65vw;
+  height: 45vh;
+  background: var(--page-highlight);
+  border-radius: 120px;
+  transform: rotate(-5deg) translateY(-50%);
+  z-index: -1;
+  filter: blur(2px);
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 a {

@@ -1,6 +1,9 @@
-import { ReactNode, useRef } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ReactNode, useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Role, useRole } from '../../roleContext';
 import './styles.css';
+
+type Theme = 'dark' | 'light';
 
 type NavItem = {
     to: string;
@@ -43,40 +46,25 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function Layout() {
     const location = useLocation();
-    const navigate = useNavigate();
-    const showNav = !location.pathname.startsWith('/shop');
-    const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
-
-    const activeIndex = NAV_ITEMS.findIndex((item) => location.pathname.startsWith(item.to));
-
-    const handleTouchStart = (event: React.TouchEvent) => {
-        if (window.innerWidth > 768) return;
-        const touch = event.touches[0];
-        touchStart.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    };
-
-    const handleTouchEnd = (event: React.TouchEvent) => {
-        if (window.innerWidth > 768) return;
-        const start = touchStart.current;
-        if (!start) return;
-
-        const touch = event.changedTouches[0];
-        const deltaX = touch.clientX - start.x;
-        const deltaY = Math.abs(touch.clientY - start.y);
-        const elapsed = Date.now() - start.time;
-        touchStart.current = null;
-
-        if (Math.abs(deltaX) < 60 || deltaY > 80 || elapsed > 800) {
-            return;
+    const showNav = !location.pathname.startsWith('/shop') && location.pathname !== '/';
+    const { role, setRole } = useRole();
+    const [theme, setTheme] = useState<Theme>(() => {
+        if (typeof window === 'undefined') return 'dark';
+        const stored = window.localStorage.getItem('djuba-theme');
+        const nextTheme = stored === 'light' ? 'light' : 'dark';
+        if (typeof document !== 'undefined') {
+            document.body.classList.toggle('theme-light', nextTheme === 'light');
+            document.body.classList.toggle('theme-dark', nextTheme === 'dark');
         }
+        return nextTheme;
+    });
 
-        if (activeIndex === -1) return;
-
-        const direction = deltaX < 0 ? 1 : -1;
-        const nextIndex = activeIndex + direction;
-        if (nextIndex < 0 || nextIndex >= NAV_ITEMS.length) return;
-        navigate(NAV_ITEMS[nextIndex].to);
-    };
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        document.body.classList.toggle('theme-light', theme === 'light');
+        document.body.classList.toggle('theme-dark', theme === 'dark');
+        window.localStorage.setItem('djuba-theme', theme);
+    }, [theme]);
 
     return (
         <div className="layout">
@@ -90,10 +78,50 @@ export default function Layout() {
                         <span>Filas inteligentes</span>
                     </div>
                 </NavLink>
-                <span className="layout__tagline">Chegue sempre na hora</span>
+                <div className="layout__actions">
+                    <div className="layout__role-switch" role="group" aria-label="Selecionar perfil">
+                        {([
+                            { value: 'C', label: 'Cliente' },
+                            { value: 'B', label: 'Barbeiro' },
+                            { value: 'A', label: 'Admin' },
+                        ] as { value: Role; label: string }[]).map((item) => (
+                            <label
+                                key={item.value}
+                                className={`layout__role-pill${role === item.value ? ' layout__role-pill--active' : ''}`}
+                            >
+                                <input
+                                    type="radio"
+                                    name="role"
+                                    value={item.value}
+                                    checked={role === item.value}
+                                    onChange={() => setRole(item.value)}
+                                />
+                                <span>{item.label}</span>
+                            </label>
+                        ))}
+                    </div>
+                    <span className="layout__tagline">Chegue sempre na hora</span>
+                    <button
+                        type="button"
+                        className="layout__theme-toggle"
+                        onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                        aria-label={`Ativar modo ${theme === 'dark' ? 'claro' : 'escuro'}`}
+                    >
+                        {theme === 'dark' ? (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 1 0 9.79 9.79z" />
+                            </svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="12" cy="12" r="5" />
+                                <path d="M12 2v2M12 20v2M4 12H2m20 0h-2M5.64 5.64 4.22 4.22m15.56 15.56-1.42-1.42M18.36 5.64l1.42-1.42M5.64 18.36 4.22 19.78" />
+                            </svg>
+                        )}
+                    </button>
+                </div>
             </header>
 
-            <main className="layout__main" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <main className="layout__main">
                 <Outlet />
             </main>
 

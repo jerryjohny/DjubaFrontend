@@ -36,7 +36,16 @@ export default function CustomerHome() {
                         key={shop.id}
                         className="chome__card"
                         style={{
-                            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.65)), url(${shop.image})`,
+                            backgroundImage: `var(--card-overlay), url(${shop.image})`,
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => navigate(`/shop/${shop.id}`)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                navigate(`/shop/${shop.id}`);
+                            }
                         }}
                     >
                         <div className="chome__card-content">
@@ -56,10 +65,24 @@ export default function CustomerHome() {
                             </div>
 
                             <div className="chome__actions">
-                                <button className="chome__btn-outline" onClick={() => navigate(`/shop/${shop.id}`)}>
+                                <button
+                                    className="chome__btn-outline"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/shop/${shop.id}`);
+                                    }}
+                                >
                                     Ver
                                 </button>
-                                <button className="chome__btn-primary">Entrar na fila</button>
+                                <button
+                                    className="chome__btn-primary"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.alert?.('Entrou na fila.');
+                                    }}
+                                >
+                                    Entrar na fila
+                                </button>
                             </div>
                         </div>
 

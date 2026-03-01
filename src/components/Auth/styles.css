@@ -4,17 +4,19 @@
     align-items: center;
     justify-content: center;
     padding: 16px;
+    color: var(--color-text);
 }
 
 .auth__card {
     width: 100%;
     max-width: 420px;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
-    border: 1px solid rgba(201, 151, 26, 0.6);
+    background: var(--surface);
+    color: var(--color-text-strong);
+    border: 1px solid var(--border-strong);
     border-radius: 16px;
     padding: 20px;
     backdrop-filter: blur(4px);
+    box-shadow: var(--shadow-strong);
 }
 
 .auth__brand {
@@ -25,13 +27,13 @@
 
 .auth__subtitle {
     font-size: 12px;
-    color: #ddd;
+    color: var(--color-muted);
     margin-bottom: 12px;
 }
 
 .auth__label {
     font-size: 12px;
-    color: #eee;
+    color: var(--color-muted-strong);
     margin-top: 10px;
     margin-bottom: 4px;
     display: block;
@@ -41,9 +43,9 @@
     width: 100%;
     padding: 12px;
     border-radius: 10px;
-    border: 1px solid #666;
-    background: rgba(0, 0, 0, 0.4);
-    color: #fff;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--color-text);
 }
 
 .auth__button {
@@ -56,28 +58,29 @@
 }
 
 .auth__button--primary {
-    background: #a0522d;
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-contrast);
 }
 
 .auth__button--primary:hover {
-    background: #8f4929;
+    background: var(--color-primary-strong);
 }
 
 .auth__button--google {
-    background: #fff;
-    color: #111;
+    background: var(--surface);
+    color: var(--color-text);
+    border: 1px solid var(--border-soft);
 }
 
 .auth__button--google:hover {
-    background: #f3f3f3;
+    background: var(--surface-muted);
 }
 
 .auth__divider {
     display: flex;
     align-items: center;
     gap: 12px;
-    color: #aaa;
+    color: var(--color-muted);
     font-size: 12px;
     margin-top: 8px;
 }
@@ -87,13 +90,13 @@
     content: "";
     flex: 1;
     height: 1px;
-    background: #555;
+    background: var(--border-soft);
 }
 
 .auth__link {
     background: none;
     border: none;
-    color: #c9971a;
+    color: var(--color-primary);
     text-decoration: underline;
     padding: 0;
 }

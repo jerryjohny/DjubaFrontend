@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { SHOPS } from "../../data/shops";
-import { useRole } from "../../roleContext";
+import { useAuth } from "../../authContext";
 import "./styles.css";
 
 type Wallet = "emola" | "mpesa";
@@ -25,8 +25,16 @@ const WALLET_DETAILS: Record<Wallet, { label: string; number: string; logo: stri
     },
 };
 
+const WAIT_TYPES = ["Corte clássico", "Barba", "Penteado rápido", "Desenho/linha"];
+const WAIT_TIMES: Record<string, string> = {
+    "Corte clássico": "~12 min",
+    Barba: "~9 min",
+    "Penteado rápido": "~7 min",
+    "Desenho/linha": "~15 min",
+};
+
 export default function Profile() {
-    const { role } = useRole();
+    const { role, user: authUser } = useAuth();
     const isAdmin = role === "A";
     const defaultCatalog = useMemo(
         () =>
@@ -39,7 +47,7 @@ export default function Profile() {
             }, {}),
         []
     );
-    const [user, setUser] = useState(INITIAL_USER);
+    const [profileUser, setProfileUser] = useState(INITIAL_USER);
     const [editable, setEditable] = useState(INITIAL_USER);
     const [editing, setEditing] = useState(false);
     const [photo, setPhoto] = useState<string | null>(null);
@@ -78,22 +86,17 @@ export default function Profile() {
         () => selectedShop?.queues.reduce((sum, queue) => sum + queue.customers, 0) ?? 0,
         [selectedShop]
     );
+    const revenueToday = useMemo(() => clientsToday * 300, [clientsToday]);
     const queueBreakdown = useMemo(
         () =>
             selectedShop?.queues.map((queue) => ({
                 name: queue.name,
                 clients: queue.customers,
+                revenue: queue.customers * 300,
             })) ?? [],
         [selectedShop]
     );
 
-    const WAIT_TYPES = ["Corte clássico", "Barba", "Penteado rápido", "Desenho/linha"];
-    const WAIT_TIMES: Record<string, string> = {
-        "Corte clássico": "~12 min",
-        Barba: "~9 min",
-        "Penteado rápido": "~7 min",
-        "Desenho/linha": "~15 min",
-    };
     const [waitType, setWaitType] = useState<string>(WAIT_TYPES[0]);
 
     useEffect(() => {
@@ -111,22 +114,22 @@ export default function Profile() {
 
     const adminStats = useMemo(
         () => [
-            { label: "Clientes hoje", value: `${clientsToday}`, hint: "+12% vs ontem" },
+            { label: "Clientes hoje", value: `${clientsToday}`, hint: `Lucro: ${revenueToday.toLocaleString("pt-PT")} MTN` },
             { label: "Tempo médio", value: "", hint: "" },
             { label: "Filas ativas", value: `${selectedShop?.queues.length ?? 0}`, hint: "" },
         ],
-        [clientsToday, selectedShop]
+        [clientsToday, revenueToday, selectedShop]
     );
 
     function toggleEditing() {
         if (editing) {
-            setEditable(user);
+            setEditable(profileUser);
         }
         setEditing(!editing);
     }
 
     function saveProfile() {
-        setUser(editable);
+        setProfileUser(editable);
         setEditing(false);
     }
 
@@ -153,15 +156,15 @@ export default function Profile() {
         <div className="profile">
             <header className="profile__hero">
                 <div className="profile__avatar">
-                    {photo ? <img src={photo} alt="Foto do perfil" /> : <span>{user.name[0]}</span>}
+                    {photo ? <img src={photo} alt="Foto do perfil" /> : <span>{profileUser.name[0]}</span>}
                     <label className="profile__upload">
                         Alterar foto
                         <input type="file" accept="image/*" onChange={onPhotoChange} />
                     </label>
                 </div>
                 <div className="profile__summary">
-                    <h1>{user.name}</h1>
-                    <p>{user.location}</p>
+                    <h1>{profileUser.name || authUser?.email || "Utilizador"}</h1>
+                    <p>{profileUser.location || "Maputo, Moçambique"}</p>
                     <div className="profile__balance">Saldo: {balance} MTN</div>
                     <button className="profile__edit" onClick={toggleEditing}>
                         {editing ? "Cancelar" : "Editar dados"}
@@ -197,7 +200,7 @@ export default function Profile() {
                             <div key={field.key} className="profile__detail">
                                 <span className="profile__detail-label">{field.label}</span>
                                 <strong className="profile__detail-value">
-                                    {user[field.key as keyof typeof user] as string}
+                                    {profileUser[field.key as keyof typeof profileUser] as string}
                                 </strong>
                             </div>
                         );
@@ -253,8 +256,11 @@ export default function Profile() {
                                         <div className="profile__stat-breakdown">
                                             <ul className="profile__stat-list">
                                                 {queueBreakdown.map((item) => (
-                                                    <li key={item.name}>
-                                                        <span className="profile__stat-queue">{item.name}</span>
+                                                    <li key={item.name} className="profile__stat-row">
+                                                        <div className="profile__stat-queue-col">
+                                                            <span className="profile__stat-queue">{item.name}</span>
+                                                            <span className="profile__muted">{item.revenue.toLocaleString("pt-PT")} MTN</span>
+                                                        </div>
                                                         <span className="profile__stat-chip">{item.clients}</span>
                                                     </li>
                                                 ))}

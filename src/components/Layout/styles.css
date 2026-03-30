@@ -75,6 +75,45 @@
     gap: 10px;
 }
 
+.layout__user {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    background: var(--surface, rgba(0, 0, 0, 0.5));
+    border: 1px solid var(--nav-border, rgba(255, 255, 255, 0.06));
+    font-size: 13px;
+}
+
+.layout__user-name {
+    font-weight: 600;
+}
+
+.layout__user-role {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-contrast);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.layout__logout {
+    border: none;
+    background: transparent;
+    color: var(--nav-muted, rgba(255, 255, 255, 0.8));
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 6px;
+    transition: color 0.2s ease;
+}
+
+.layout__logout:hover {
+    color: var(--color-primary);
+}
+
 .layout__role-switch {
     display: inline-flex;
     align-items: center;

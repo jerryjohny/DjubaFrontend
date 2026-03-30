@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Role, useRole } from '../../roleContext';
+import { useAuth } from '../../authContext';
 import './styles.css';
 
 type Theme = 'dark' | 'light';
@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
 export default function Layout() {
     const location = useLocation();
     const showNav = !location.pathname.startsWith('/shop') && location.pathname !== '/';
-    const { role, setRole } = useRole();
+    const { user, role, logout, accessToken } = useAuth();
     const [theme, setTheme] = useState<Theme>(() => {
         if (typeof window === 'undefined') return 'dark';
         const stored = window.localStorage.getItem('djuba-theme');
@@ -79,27 +79,15 @@ export default function Layout() {
                     </div>
                 </NavLink>
                 <div className="layout__actions">
-                    <div className="layout__role-switch" role="group" aria-label="Selecionar perfil">
-                        {([
-                            { value: 'C', label: 'Cliente' },
-                            { value: 'B', label: 'Barbeiro' },
-                            { value: 'A', label: 'Admin' },
-                        ] as { value: Role; label: string }[]).map((item) => (
-                            <label
-                                key={item.value}
-                                className={`layout__role-pill${role === item.value ? ' layout__role-pill--active' : ''}`}
-                            >
-                                <input
-                                    type="radio"
-                                    name="role"
-                                    value={item.value}
-                                    checked={role === item.value}
-                                    onChange={() => setRole(item.value)}
-                                />
-                                <span>{item.label}</span>
-                            </label>
-                        ))}
-                    </div>
+                    {accessToken && (
+                        <div className="layout__user">
+                            <span className="layout__user-name">{user?.email ?? 'Utilizador'}</span>
+                            {role && <span className="layout__user-role">{role === 'C' ? 'Cliente' : role === 'B' ? 'Barbeiro' : 'Admin'}</span>}
+                            <button type="button" className="layout__logout" onClick={logout}>
+                                Sair
+                            </button>
+                        </div>
+                    )}
                     <span className="layout__tagline">Chegue sempre na hora</span>
                     <button
                         type="button"

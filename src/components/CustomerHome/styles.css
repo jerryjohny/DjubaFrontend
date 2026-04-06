@@ -42,6 +42,16 @@
     padding: 4px 0 18px;
 }
 
+.chome__status {
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-muted);
+}
+
+.chome__status--warning {
+    color: #c97b1a;
+}
+
 .chome__card {
     border: none;
     border-radius: 22px;
@@ -56,6 +66,10 @@
     box-shadow: var(--shadow-lifted);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
     cursor: pointer;
+}
+
+.chome__card--locked {
+    cursor: default;
 }
 
 .chome__card:active {
@@ -113,6 +127,12 @@
 
 .chome__btn-primary:hover {
     background: var(--color-primary-strong);
+}
+
+.chome__btn-outline:disabled,
+.chome__btn-primary:disabled {
+    cursor: default;
+    opacity: 0.55;
 }
 
 .chome__flag {

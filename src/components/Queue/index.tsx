@@ -1,28 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SHOPS, QueueInfo, QueueStatus, ShopInfo } from "../../data/shops";
+import { useAuth } from "../../authContext";
+import { QueueClientInfo, QueueInfo, QueueStatus, ShopInfo } from "../../data/shops";
+import { useShops } from "../../hooks/useShops";
 import "./styles.css";
 
-type ClientInfo = {
-    id: string;
-    name: string;
-    phone: string;
-    avatar: string;
-    isUser?: boolean;
-};
-
-type MyQueueEntry = {
-    shopId: string;
-    queueId: string;
+type QueueCardInfo = {
+    shop: ShopInfo;
+    queue: QueueInfo;
+    clients: Array<QueueClientInfo & { isCurrentUser: boolean }>;
+    cardId: string;
+    serviceId: string;
     position: number;
 };
 
-type QueueCardInfo = {
-    entry: MyQueueEntry;
-    shop: ShopInfo;
-    queue: QueueInfo;
-    clients: ClientInfo[];
-    userIndex: number;
-    cardId: string;
+type ClientModalState = {
+    mode: "preview" | "self";
+    client: QueueClientInfo & { isCurrentUser: boolean };
+    card: QueueCardInfo;
 };
 
 const QUEUE_STATUS_LABEL: Record<QueueStatus, string> = {
@@ -30,98 +24,64 @@ const QUEUE_STATUS_LABEL: Record<QueueStatus, string> = {
     closingSoon: "Fecha em breve",
     paused: "Fila pausada",
     closed: "Fechada",
+    inactive: "Nao iniciada",
 };
 
-const SAMPLE_CUSTOMERS: ClientInfo[] = [
-    { id: "c1", name: "Nuno T.", phone: "+258 82 123 4567", avatar: "https://i.pravatar.cc/100?img=5" },
-    { id: "c2", name: "Sofia L.", phone: "+258 84 234 5678", avatar: "https://i.pravatar.cc/100?img=15" },
-    { id: "c3", name: "Joana P.", phone: "+258 82 765 4321", avatar: "https://i.pravatar.cc/100?img=25" },
-    { id: "c4", name: "Iuri C.", phone: "+258 86 345 9988", avatar: "https://i.pravatar.cc/100?img=35" },
-    { id: "c5", name: "Bia M.", phone: "+258 84 777 0001", avatar: "https://i.pravatar.cc/100?img=45" },
-    { id: "c6", name: "Carlos V.", phone: "+258 84 110 2233", avatar: "https://i.pravatar.cc/100?img=55" },
-];
+function toRequestId(value: string) {
+    return /^\d+$/.test(value) ? Number(value) : value;
+}
 
-const USER_PROFILE: ClientInfo = {
-    id: "user",
-    name: "EU",
-    phone: "+258 82 900 1234",
-    avatar: "https://i.pravatar.cc/100?img=68",
-    isUser: true,
-};
+function formatQueueDate(value?: string | null) {
+    if (!value) return null;
+    const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+    if (!year || !month || !day) return value;
 
-const MY_QUEUES: MyQueueEntry[] = [
-    { shopId: "s1", queueId: "q1", position: 3 },
-    { shopId: "s1", queueId: "q2", position: 1 },
-    { shopId: "s2", queueId: "q3", position: 2 },
-];
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-
-const createClients = (queue: QueueInfo, entry: MyQueueEntry, offset: number) => {
-    const othersCount = Math.max(queue.customers - 1, 0);
-    const others = Array.from({ length: othersCount }, (_, index) => {
-        const sample = SAMPLE_CUSTOMERS[(index + offset) % SAMPLE_CUSTOMERS.length];
-        return {
-            ...sample,
-            id: `${queue.id}-client-${offset}-${index}`,
-        };
-    });
-
-    const insertIndex = clamp(entry.position - 1, 0, others.length);
-    others.splice(insertIndex, 0, {
-        ...USER_PROFILE,
-        id: `${queue.id}-me`,
-    });
-
-    return others;
-};
+    return new Intl.DateTimeFormat("pt-PT", {
+        timeZone: "Africa/Maputo",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+    }).format(new Date(Date.UTC(year, month - 1, day)));
+}
 
 export default function Queue() {
-    const uniqueQueues = useMemo(() => {
-        const map: Record<string, MyQueueEntry> = {};
-        MY_QUEUES.forEach((entry) => {
-            const existing = map[entry.shopId];
-            if (!existing || entry.position < existing.position) {
-                map[entry.shopId] = entry;
-            }
-        });
-        return Object.values(map);
-    }, []);
-
-    const queueCards = useMemo<QueueCardInfo[]>(() => {
-        return uniqueQueues
-            .map((entry, entryIndex) => {
-                const shop = SHOPS.find((s) => s.id === entry.shopId);
-                if (!shop) return null;
-                const queue = shop.queues.find((q) => q.id === entry.queueId);
-                if (!queue) return null;
-
-                const clients = createClients(queue, entry, entryIndex * 2);
-                const userIndex = clients.findIndex((client) => client.isUser);
-
-                return {
-                    entry,
-                    shop,
-                    queue,
-                    clients,
-                    userIndex,
-                    cardId: `${shop.id}-${queue.id}`,
-                };
-            })
-            .filter((value): value is QueueCardInfo => Boolean(value));
-    }, [uniqueQueues]);
-
-    const bestQueue = useMemo(() => {
-        return queueCards.reduce<QueueCardInfo | null>((best, current) => {
-            if (!best) return current;
-            return current.entry.position < best.entry.position ? current : best;
-        }, null);
-    }, [queueCards]);
-
-    const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
+    const { user: authUser, accessToken } = useAuth();
+    const { shops, loading, error, reload } = useShops();
+    const [activeModal, setActiveModal] = useState<ClientModalState | null>(null);
     const [userSwapOffers, setUserSwapOffers] = useState<Record<string, boolean>>({});
     const [canScrollRight, setCanScrollRight] = useState<Record<string, boolean>>({});
+    const [actionError, setActionError] = useState("");
+    const [actionSuccess, setActionSuccess] = useState("");
+    const [leavingServiceId, setLeavingServiceId] = useState<string | null>(null);
     const queueRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+    const queueCards = useMemo<QueueCardInfo[]>(() => {
+        const currentUserId = authUser?.id != null ? String(authUser.id) : null;
+
+        return shops
+            .flatMap((shop) =>
+                shop.queues
+                    .filter((queue) => queue.currentUserServiceId)
+                    .map((queue) => {
+                        const clients = (queue.clients ?? []).map((client) => ({
+                            ...client,
+                            isCurrentUser: currentUserId != null && client.id === currentUserId,
+                        }));
+
+                        return {
+                            shop,
+                            queue,
+                            clients,
+                            cardId: `${shop.id}-${queue.id}`,
+                            serviceId: queue.currentUserServiceId || "",
+                            position: queue.currentUserPosition || Math.max(1, queue.customers),
+                        };
+                    })
+            )
+            .sort((left, right) => left.position - right.position);
+    }, [authUser, shops]);
+
+    const bestQueue = queueCards[0] ?? null;
 
     const updateArrow = (queueId: string) => {
         const element = queueRefs.current[queueId];
@@ -139,60 +99,123 @@ export default function Queue() {
         });
     }, [queueCards]);
 
+    function openClientModal(card: QueueCardInfo, client: QueueCardInfo["clients"][number]) {
+        setActiveModal({
+            mode: client.isCurrentUser ? "self" : "preview",
+            client,
+            card,
+        });
+    }
+
+    function closeClientModal() {
+        if (leavingServiceId) return;
+        setActiveModal(null);
+    }
+
+    async function leaveQueue(card: QueueCardInfo) {
+        if (!accessToken || !card.serviceId) {
+            setActionError("Nao foi possivel validar a sua sessao.");
+            return;
+        }
+
+        setLeavingServiceId(card.serviceId);
+        setActionError("");
+        setActionSuccess("");
+
+        try {
+            const response = await fetch(`/api/services/${toRequestId(card.serviceId)}/leave/`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || `Falha ao sair da fila (${response.status})`);
+            }
+
+            setActiveModal(null);
+            setActionSuccess(`Saiu da ${card.queue.name} com sucesso.`);
+            reload();
+        } catch (err) {
+            setActionError(err instanceof Error ? err.message : "Falha ao sair da fila");
+        } finally {
+            setLeavingServiceId(null);
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="queue queue--empty">
+                <p>A carregar as suas filas...</p>
+            </div>
+        );
+    }
+
+    if (error && queueCards.length === 0) {
+        return (
+            <div className="queue queue--empty">
+                <p>{error}</p>
+            </div>
+        );
+    }
+
     if (queueCards.length === 0) {
         return (
             <div className="queue queue--empty">
-                <p>{"Você ainda não está inscrito em nenhuma fila."}</p>
+                <p>Voce ainda nao esta inscrito em nenhuma fila.</p>
             </div>
         );
     }
 
     return (
         <div className="queue">
+            {actionSuccess && <div className="queue__flash queue__flash--success">{actionSuccess}</div>}
+            {actionError && <div className="queue__flash queue__flash--error">{actionError}</div>}
+
             {bestQueue && (
                 <div className="queue__summary">
                     <div>
-                        <p>{"Melhor posição neste momento"}</p>
-                        <strong>#{bestQueue.entry.position}</strong>
+                        <p>Melhor posicao neste momento</p>
+                        <strong>#{bestQueue.position}</strong>
                         <span>{bestQueue.shop.name}</span>
                     </div>
                     <div className="queue__summary-meta">
-                        {bestQueue.entry.position === 1
-                            ? "É a sua vez"
-                            : bestQueue.entry.position - 1 > 0
-                                ? `${bestQueue.entry.position - 1} pessoas à frente`
-                                : "Você é o próximo"}
+                        {bestQueue.position === 1
+                            ? "E a sua vez"
+                            : bestQueue.position - 1 > 0
+                              ? `${bestQueue.position - 1} pessoas a frente`
+                              : "Voce e o proximo"}
                     </div>
                 </div>
             )}
 
             <div className="queue__cards">
-                {queueCards.map((card, index) => {
-                    const barberName = card.queue.barbers[0]?.name ?? "Equipe";
-                    const cardKey = card.cardId;
-                    const swapActive = Boolean(userSwapOffers[cardKey]);
+                {queueCards.map((card) => {
+                    const barberName = card.queue.barbers[0]?.name ?? null;
+                    const queueTitle = barberName ? `${card.queue.name} - ${barberName}` : card.queue.name;
+                    const queueDateLabel = formatQueueDate(card.queue.date);
+                    const swapActive = Boolean(userSwapOffers[card.serviceId]);
 
                     return (
-                        <article
-                            key={cardKey}
-                            className={`queue__card ${bestQueue?.cardId === cardKey ? "queue__card--highlight" : ""}`}
-                        >
+                        <article key={card.cardId} className={`queue__card ${bestQueue?.cardId === card.cardId ? "queue__card--highlight" : ""}`}>
                             <header className="queue__card-header">
                                 <div>
                                     <p className="queue__shop">{card.shop.name}</p>
-                                    <h3>{`Fila ${index + 1} - ${barberName}`}</h3>
+                                    <h3>{queueTitle}</h3>
+                                    {queueDateLabel && <p className="queue__card-date">{queueDateLabel}</p>}
                                     <p className="queue__card-meta">
-                                        {card.entry.position === 1
-                                            ? `É a sua vez nesta fila | Espera estimada ${card.queue.waitEstimate}`
-                                            : `Você está na posição #${card.entry.position} | Espera estimada ${card.queue.waitEstimate}`}
+                                        {card.position === 1
+                                            ? `E a sua vez nesta fila | Espera estimada ${card.queue.waitEstimate}`
+                                            : `Voce esta na posicao #${card.position} | Espera estimada ${card.queue.waitEstimate}`}
                                     </p>
                                     <p className="queue__card-meta queue__card-meta--secondary">
-                                        {`${card.queue.customers} clientes no total`}
+                                        {`${card.queue.customers} clientes no total${card.queue.currentUserServiceName ? ` | ${card.queue.currentUserServiceName}` : ""}`}
                                     </p>
                                 </div>
-                                <span className={`queue__status queue__status--${card.queue.status}`}>
-                                    {QUEUE_STATUS_LABEL[card.queue.status]}
-                                </span>
+                                <span className={`queue__status queue__status--${card.queue.status}`}>{QUEUE_STATUS_LABEL[card.queue.status]}</span>
                             </header>
 
                             <div
@@ -207,16 +230,10 @@ export default function Queue() {
                                     <span className="queue__avatars-empty">Fila vazia no momento</span>
                                 ) : (
                                     card.clients.map((client, clientIndex) => {
-                                        const isCurrent = clientIndex === 0;
-                                        const isTrade = clientIndex === 1 && !client.isUser;
-                                        const isMe = client.isUser;
-                                        const isExpanded = expandedClientId === client.id;
                                         const avatarClasses = [
                                             "queue__avatar",
-                                            isCurrent && "queue__avatar--current",
-                                            isTrade && "queue__avatar--trade",
-                                            isMe && "queue__avatar--me",
-                                            isExpanded && "queue__avatar--expanded",
+                                            clientIndex === 0 && "queue__avatar--current",
+                                            client.isCurrentUser && "queue__avatar--me",
                                         ]
                                             .filter(Boolean)
                                             .join(" ");
@@ -226,71 +243,88 @@ export default function Queue() {
                                                 key={client.id}
                                                 type="button"
                                                 className={avatarClasses}
-                                                onClick={() =>
-                                                    setExpandedClientId((prev) => (prev === client.id ? null : client.id))
-                                                }
+                                                onClick={() => openClientModal(card, client)}
                                             >
                                                 <img src={client.avatar} alt={`Cliente ${client.name}`} />
                                                 <span className="queue__avatar-name">{client.name}</span>
-                                                <div className="queue__avatar-info">
-                                                    <strong>{client.name}</strong>
-                                                    <span>{client.phone}</span>
-                                                    {isMe && isExpanded && (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                className={`queue__swap-btn${
-                                                                    swapActive ? " queue__swap-btn--active" : ""
-                                                                }`}
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation();
-                                                                    setUserSwapOffers((prev) => ({
-                                                                        ...prev,
-                                                                        [cardKey]: !swapActive,
-                                                                    }));
-                                                                }}
-                                                            >
-                                                                {swapActive ? "Troca disponível" : "Disponibilizar troca"}
-                                                            </button>
-                                                            {!isCurrent && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="queue__swap-btn queue__swap-btn--exit"
-                                                                    onClick={(event) => {
-                                                                        event.stopPropagation();
-                                                                        window.alert?.("Você saiu da fila.");
-                                                                    }}
-                                                                >
-                                                                    Sair da fila
-                                                                </button>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                    {isTrade && isExpanded && (
-                                                        <button
-                                                            type="button"
-                                                            className="queue__swap-btn queue__swap-btn--request"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                window.alert?.("Solicitação de troca enviada.");
-                                                            }}
-                                                        >
-                                                            Solicitar troca
-                                                        </button>
-                                                    )}
-                                                </div>
                                             </button>
                                         );
                                     })
                                 )}
-                                {canScrollRight[cardKey] && <span className="queue__avatars-arrow">{">>"}</span>}
+                                {canScrollRight[card.cardId] && <span className="queue__avatars-arrow">{">>"}</span>}
                             </div>
+
+                            {swapActive && <div className="queue__swap-state">A sua posicao esta disponivel para troca.</div>}
                         </article>
                     );
                 })}
             </div>
 
-            <div className="queue__hint">{"Revise suas filas e escolha a melhor posição para ser atendido."}</div>
+            <div className="queue__hint">Revise as suas filas e toque na foto para ver detalhes ou acoes.</div>
+
+            {activeModal && (
+                <div className="queue__modal-backdrop" onClick={closeClientModal}>
+                    <div
+                        className={`queue__modal${activeModal.mode === "self" ? " queue__modal--split" : ""}`}
+                        onClick={(event) => event.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                    >
+                        <button type="button" className="queue__modal-close" onClick={closeClientModal}>
+                            x
+                        </button>
+
+                        {activeModal.mode === "preview" ? (
+                            <div className="queue__modal-preview">
+                                <div className="queue__modal-avatar">
+                                    <img src={activeModal.client.avatar} alt={activeModal.client.name} />
+                                </div>
+                                <strong>{activeModal.client.name}</strong>
+                                <span>{activeModal.client.phone}</span>
+                                <small>{`${activeModal.card.shop.name} - ${activeModal.card.queue.name}`}</small>
+                            </div>
+                        ) : (
+                            <div className="queue__modal-split">
+                                <div className="queue__modal-media">
+                                    <div className="queue__modal-avatar queue__modal-avatar--large">
+                                        <img src={activeModal.client.avatar} alt={activeModal.client.name} />
+                                    </div>
+                                    <strong>{activeModal.client.name}</strong>
+                                    <span>{activeModal.client.phone}</span>
+                                    <small>{`Posicao atual #${activeModal.card.position}`}</small>
+                                </div>
+
+                                <div className="queue__modal-actions-pane">
+                                    <h3>Gerir a minha posicao</h3>
+                                    <p>{`${activeModal.card.shop.name} - ${activeModal.card.queue.name}`}</p>
+
+                                    <button
+                                        type="button"
+                                        className={`queue__action-btn${userSwapOffers[activeModal.card.serviceId] ? " queue__action-btn--active" : ""}`}
+                                        onClick={() =>
+                                            setUserSwapOffers((prev) => ({
+                                                ...prev,
+                                                [activeModal.card.serviceId]: !prev[activeModal.card.serviceId],
+                                            }))
+                                        }
+                                    >
+                                        {userSwapOffers[activeModal.card.serviceId] ? "Minha posicao disponibilizada" : "Disponibilizar minha posicao"}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="queue__action-btn queue__action-btn--danger"
+                                        onClick={() => void leaveQueue(activeModal.card)}
+                                        disabled={leavingServiceId === activeModal.card.serviceId}
+                                    >
+                                        {leavingServiceId === activeModal.card.serviceId ? "A sair..." : "Abandonar fila"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

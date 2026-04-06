@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SHOPS, ShopInfo } from '../../data/shops';
+import { ShopInfo } from '../../data/shops';
+import { useShops } from '../../hooks/useShops';
 import './styles.css';
 
 const STATUS_LABELS: Record<ShopInfo['status']['type'], string> = {
@@ -12,11 +13,12 @@ const STATUS_LABELS: Record<ShopInfo['status']['type'], string> = {
 export default function CustomerHome() {
     const [q, setQ] = useState('');
     const navigate = useNavigate();
+    const { shops, enterableShopIds, loading, error, usingFallback } = useShops();
 
     const filtered = useMemo(() => {
         const term = q.trim().toLowerCase();
-        return term ? SHOPS.filter((shop) => shop.name.toLowerCase().includes(term)) : SHOPS;
-    }, [q]);
+        return term ? shops.filter((shop) => shop.name.toLowerCase().includes(term)) : shops;
+    }, [q, shops]);
 
     return (
         <div className="chome">
@@ -30,27 +32,42 @@ export default function CustomerHome() {
                 <button className="chome__button">Procurar</button>
             </div>
 
+            {loading && <p className="chome__status">A carregar barbearias...</p>}
+            {!loading && error && usingFallback && (
+                <p className="chome__status chome__status--warning">
+                    Nao foi possivel sincronizar com o backend. A mostrar lista local.
+                </p>
+            )}
+
             <div className="chome__list">
-                {filtered.map((shop) => (
-                    <div
-                        key={shop.id}
-                        className="chome__card"
-                        style={{
-                            backgroundImage: `var(--card-overlay), url(${shop.image})`,
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => navigate(`/shop/${shop.id}`)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
+                {filtered.map((shop) => {
+                    const canEnterShop = enterableShopIds.includes(shop.id);
+
+                    return (
+                        <div
+                            key={shop.id}
+                            className={`chome__card${canEnterShop ? '' : ' chome__card--locked'}`}
+                            style={{
+                                backgroundImage: `var(--card-overlay), url(${shop.image})`,
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-disabled={!canEnterShop}
+                            onClick={() => {
+                                if (!canEnterShop) return;
                                 navigate(`/shop/${shop.id}`);
-                            }
-                        }}
-                    >
-                        <div className="chome__card-content">
-                            <div>
-                                <div className="chome__title">{shop.name}</div>
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    if (!canEnterShop) return;
+                                    navigate(`/shop/${shop.id}`);
+                                }
+                            }}
+                        >
+                            <div className="chome__card-content">
+                                <div>
+                                    <div className="chome__title">{shop.name}</div>
                                 <div className="chome__meta">
                                     {shop.location && (
                                         <>
@@ -58,17 +75,23 @@ export default function CustomerHome() {
                                             <br />
                                         </>
                                     )}
-                                    <span>
-                                        {shop.distanceKm.toFixed(1)} km | Nota {shop.rating?.toFixed(1)}
-                                    </span>
+                                    {(shop.distanceKm > 0 || typeof shop.rating === 'number') && (
+                                        <span>
+                                            {shop.distanceKm > 0 && `${shop.distanceKm.toFixed(1)} km`}
+                                            {shop.distanceKm > 0 && typeof shop.rating === 'number' && ' | '}
+                                            {typeof shop.rating === 'number' && `Nota ${shop.rating.toFixed(1)}`}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
                             <div className="chome__actions">
                                 <button
                                     className="chome__btn-outline"
+                                    disabled={!canEnterShop}
                                     onClick={(e) => {
                                         e.stopPropagation();
+                                        if (!canEnterShop) return;
                                         navigate(`/shop/${shop.id}`);
                                     }}
                                 >
@@ -76,9 +99,11 @@ export default function CustomerHome() {
                                 </button>
                                 <button
                                     className="chome__btn-primary"
+                                    disabled={!canEnterShop}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        window.alert?.('Entrou na fila.');
+                                        if (!canEnterShop) return;
+                                        navigate(`/shop/${shop.id}`);
                                     }}
                                 >
                                     Entrar na fila
@@ -96,8 +121,12 @@ export default function CustomerHome() {
                                 )}
                             </div>
                         </div>
-                    </div>
-                ))}
+                        </div>
+                    );
+                })}
+                {!loading && filtered.length === 0 && (
+                    <p className="chome__status">Nenhuma barbearia encontrada.</p>
+                )}
             </div>
         </div>
     );

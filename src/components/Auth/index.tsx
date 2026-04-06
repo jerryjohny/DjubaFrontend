@@ -69,7 +69,7 @@ export default function Auth() {
         setBusy(true);
         setAuthError(null);
         try {
-            await register({ fullName, email: regEmail, password: regPass });
+            await register({ fullName, email: regEmail, telefone: phone, password: regPass });
             navigate('/home');
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Falha ao registar';
@@ -144,7 +144,18 @@ export default function Auth() {
 
                         <div className="auth__divider"><span>ou</span></div>
                         <button className="auth__button auth__button--google" onClick={submitGoogle} disabled={busy}>
-                            Continuar com Google
+                            <span className="auth__google-mark" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" role="img" focusable="false">
+                                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.9-5.4 3.9-3.3 0-5.9-2.7-5.9-6s2.6-6 5.9-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.3 6.6 2.3 12s4.3 9.8 9.7 9.8c5.6 0 9.3-3.9 9.3-9.4 0-.6-.1-1.1-.2-1.5H12z" />
+                                    <path fill="#34A853" d="M2.3 12c0 2.1.8 4 2.2 5.5l3.6-2.8c-.9-.6-1.5-1.6-1.5-2.7s.6-2.1 1.5-2.7L4.5 6.5A9.7 9.7 0 0 0 2.3 12z" />
+                                    <path fill="#FBBC05" d="M12 21.8c2.6 0 4.8-.9 6.4-2.5l-3.1-2.4c-.9.6-2 .9-3.3.9-2.5 0-4.7-1.7-5.5-4l-3.7 2.8a9.7 9.7 0 0 0 9.2 5.2z" />
+                                    <path fill="#4285F4" d="M18.4 19.3c1.8-1.6 2.9-4 2.9-6.9 0-.6-.1-1.1-.2-1.5H12v3.9h5.4c-.3 1.4-1.1 2.5-2.1 3.3l3.1 2.4z" />
+                                </svg>
+                            </span>
+                            <span className="auth__google-copy">
+                                <span className="auth__google-title">Continuar com Google</span>
+                                <span className="auth__google-subtitle">Entrar com um popup seguro</span>
+                            </span>
                         </button>
 
                         <p className="auth__switch">
@@ -179,7 +190,18 @@ export default function Auth() {
 
                         <div className="auth__divider"><span>ou</span></div>
                         <button className="auth__button auth__button--google" onClick={submitGoogle} disabled={busy}>
-                            Criar com Google
+                            <span className="auth__google-mark" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" role="img" focusable="false">
+                                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.9-5.4 3.9-3.3 0-5.9-2.7-5.9-6s2.6-6 5.9-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.3 6.6 2.3 12s4.3 9.8 9.7 9.8c5.6 0 9.3-3.9 9.3-9.4 0-.6-.1-1.1-.2-1.5H12z" />
+                                    <path fill="#34A853" d="M2.3 12c0 2.1.8 4 2.2 5.5l3.6-2.8c-.9-.6-1.5-1.6-1.5-2.7s.6-2.1 1.5-2.7L4.5 6.5A9.7 9.7 0 0 0 2.3 12z" />
+                                    <path fill="#FBBC05" d="M12 21.8c2.6 0 4.8-.9 6.4-2.5l-3.1-2.4c-.9.6-2 .9-3.3.9-2.5 0-4.7-1.7-5.5-4l-3.7 2.8a9.7 9.7 0 0 0 9.2 5.2z" />
+                                    <path fill="#4285F4" d="M18.4 19.3c1.8-1.6 2.9-4 2.9-6.9 0-.6-.1-1.1-.2-1.5H12v3.9h5.4c-.3 1.4-1.1 2.5-2.1 3.3l3.1 2.4z" />
+                                </svg>
+                            </span>
+                            <span className="auth__google-copy">
+                                <span className="auth__google-title">Criar com Google</span>
+                                <span className="auth__google-subtitle">Preencher dados automaticamente</span>
+                            </span>
                         </button>
 
                         <p className="auth__switch">

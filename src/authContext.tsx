@@ -7,8 +7,13 @@ export type AuthUser = {
     username?: string;
     first_name?: string;
     last_name?: string;
+    telefone?: string;
+    bairro?: string;
+    profile_picture?: string;
     role?: string;
 };
+
+type UpdateUserPayload = Partial<Pick<AuthUser, 'first_name' | 'last_name' | 'email' | 'telefone' | 'bairro'>>;
 
 type AuthContextValue = {
     user: AuthUser | null;
@@ -19,6 +24,7 @@ type AuthContextValue = {
     login: (email: string, password: string) => Promise<void>;
     googleLogin: (payload: { idToken?: string; accessToken?: string }) => Promise<void>;
     register: (payload: RegisterPayload) => Promise<void>;
+    updateUser: (payload: UpdateUserPayload) => Promise<AuthUser>;
     logout: () => void;
 };
 
@@ -38,6 +44,7 @@ type StoredAuth = {
 export type RegisterPayload = {
     fullName: string;
     email: string;
+    telefone: string;
     password: string;
     role?: Role;
 };
@@ -53,13 +60,15 @@ function mapRole(apiRole?: string): Role | null {
 
 async function fetchJson(url: string, options: RequestInit = {}) {
     try {
+        const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
         const res = await fetch(url, {
+            ...options,
             headers: {
-                'Content-Type': 'application/json',
                 Accept: 'application/json',
+                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 ...(options.headers || {}),
             },
-            ...options,
         });
         if (!res.ok) {
             const text = await res.text();
@@ -166,7 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 
     const register = useCallback(
-        async ({ fullName, email, password, role: desiredRole }: RegisterPayload) => {
+        async ({ fullName, email, telefone, password, role: desiredRole }: RegisterPayload) => {
             const [first_name, ...rest] = fullName.trim().split(' ');
             const last_name = rest.join(' ') || first_name;
             const username = email;
@@ -179,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     first_name,
                     last_name,
                     email,
+                    telefone,
                     role: roleToSend,
                     password,
                 }),
@@ -212,9 +222,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 throw new Error('Resposta invÃ¡lida do login com Google');
             }
 
-            storeAuth(access, refresh, authUser);
+            await fetchAndSetUser(access, refresh, authUser.email);
         },
-        [storeAuth]
+        [fetchAndSetUser]
+    );
+
+    const updateUser = useCallback(
+        async (payload: UpdateUserPayload) => {
+            if (!user?.id || !accessToken || !refreshToken) {
+                throw new Error('Sessao invalida');
+            }
+
+            const updatedUser = (await fetchJson(`${API_BASE}/users/${user.id}/`, {
+                method: 'PATCH',
+                headers: { Authorization: `Bearer ${accessToken}` },
+                body: JSON.stringify(payload),
+            })) as AuthUser;
+
+            const mergedUser: AuthUser = { ...user, ...updatedUser };
+            const nextRole = mapRole(mergedUser.role) ?? role ?? 'C';
+            const nextAuth: StoredAuth = {
+                accessToken,
+                refreshToken,
+                user: mergedUser,
+                role: nextRole,
+            };
+
+            setUser(mergedUser);
+            setRole(nextRole);
+            persist(nextAuth);
+
+            return mergedUser;
+        },
+        [accessToken, persist, refreshToken, role, user]
     );
 
     const value = useMemo<AuthContextValue>(
@@ -227,9 +267,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             login,
             googleLogin,
             register,
+            updateUser,
             logout,
         }),
-        [user, role, accessToken, refreshToken, loading, login, googleLogin, register, logout]
+        [user, role, accessToken, refreshToken, loading, login, googleLogin, register, updateUser, logout]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

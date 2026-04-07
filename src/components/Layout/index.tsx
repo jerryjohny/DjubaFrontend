@@ -223,7 +223,7 @@ const NAV_ITEMS: NavItem[] = [
 export default function Layout() {
     const location = useLocation();
     const showNav = !location.pathname.startsWith('/shop') && location.pathname !== '/';
-    const { user, logout, accessToken } = useAuth();
+    const { user, logout, accessToken, authFetch } = useAuth();
     const { account } = useCurrentAccount();
     const displayName = user?.first_name?.trim() || 'Utilizador';
     const userRole = String(user?.role || '').toUpperCase();
@@ -282,10 +282,9 @@ export default function Layout() {
 
             try {
                 if (isCustomer) {
-                    const response = await fetch(`${API_BASE}/account-transactions/`, {
+                    const response = await authFetch(`${API_BASE}/account-transactions/`, {
                         headers: {
                             Accept: 'application/json',
-                            Authorization: `Bearer ${accessToken}`,
                         },
                     });
 
@@ -308,11 +307,10 @@ export default function Layout() {
 
                 const headers = {
                     Accept: 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
                 };
                 const [servicesResponse, transactionsResponse] = await Promise.all([
-                    fetch(`${API_BASE}/services/`, { headers }),
-                    fetch(`${API_BASE}/account-transactions/`, { headers }),
+                    authFetch(`${API_BASE}/services/`, { headers }),
+                    authFetch(`${API_BASE}/account-transactions/`, { headers }),
                 ]);
 
                 if (!servicesResponse.ok) {
@@ -434,7 +432,7 @@ export default function Layout() {
             active = false;
             window.clearInterval(intervalId);
         };
-    }, [accessToken, canSeeNotifications, customerAccountId, isBarber, isCustomer, isShopAdmin, user?.id]);
+    }, [accessToken, authFetch, canSeeNotifications, customerAccountId, isBarber, isCustomer, isShopAdmin, user?.id]);
 
     useEffect(() => {
         if (!notificationsOpen || typeof window === 'undefined' || !user?.id || notifications.length === 0) return;

@@ -17,8 +17,11 @@ export type QueueClientInfo = {
     serviceId?: string | null;
     serviceStatus?: string | null;
     serviceName?: string | null;
+    serviceAverageTime?: string | null;
     position?: number | null;
     joinedQueueAt?: string | null;
+    startTime?: string | null;
+    finishTime?: string | null;
 };
 
 export type QueueInfo = {

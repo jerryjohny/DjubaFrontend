@@ -443,6 +443,16 @@
     resize: vertical;
 }
 
+.profile__field {
+    display: grid;
+    gap: 6px;
+}
+
+.profile__field span {
+    font-size: 13px;
+    color: var(--color-muted);
+}
+
 .profile__save {
     align-self: flex-start;
     border: none;
@@ -457,6 +467,12 @@
 .profile__save--ghost {
     background: var(--surface-muted);
     color: var(--color-text);
+}
+
+.profile__save--danger {
+    background: rgba(180, 35, 35, 0.18);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 107, 107, 0.4);
 }
 
 .profile__dashboard {
@@ -1290,6 +1306,11 @@
     gap: 10px;
     color: var(--color-muted);
     font-size: 13px;
+}
+
+.profile__catalog-service-actions {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .profile__catalog-fields {

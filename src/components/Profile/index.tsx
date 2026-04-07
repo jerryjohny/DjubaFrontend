@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthUser, useAuth } from "../../authContext";
 import { ShopInfo } from "../../data/shops";
 import { useCurrentAccount } from "../../hooks/useCurrentAccount";
 import { useShops } from "../../hooks/useShops";
+import { emitWorkspaceSync, subscribeWorkspaceSync } from "../../utils/workspaceSync";
 import "./styles.css";
 
 type Wallet = "emola" | "mpesa";
 type ShopActionPanel = "service" | "tasks" | "catalog";
 
 type CatalogFormState = {
+    id?: string | null;
     name: string;
     price: string;
     averageTime: string;
@@ -124,7 +126,7 @@ type ShopTask = {
 type ShopServiceAction = {
     id: string;
     serviceId: string;
-    kind: "start" | "complete";
+    kind: "start";
     title: string;
     detail: string;
     customerName: string;
@@ -176,6 +178,24 @@ function parseAccountBalance(value: unknown) {
 function formatCatalogPrice(value: unknown) {
     const amount = parseAccountBalance(value);
     return `${amount.toLocaleString("pt-PT")} MZN`;
+}
+
+function buildCatalogFormState(service?: ApiCatalogServiceType | null): CatalogFormState {
+    if (!service) {
+        return {
+            id: null,
+            name: "",
+            price: "",
+            averageTime: "00:30",
+        };
+    }
+
+    return {
+        id: String(service.id),
+        name: service.name?.trim() || "",
+        price: parseAccountBalance(service.price).toString(),
+        averageTime: formatAverageTimeLabel(service.average_time),
+    };
 }
 
 function formatAverageTimeLabel(value?: string | null) {
@@ -374,7 +394,7 @@ function getRoleLabel(apiRole?: string, fallbackRole?: string | null) {
 }
 
 export default function Profile() {
-    const { role, user: authUser, updateUser, accessToken } = useAuth();
+    const { role, user: authUser, updateUser, accessToken, authFetch } = useAuth();
     const {
         balance,
         hasCurrentAccount,
@@ -500,6 +520,7 @@ export default function Profile() {
     const [catalogSaving, setCatalogSaving] = useState(false);
     const [catalogMessage, setCatalogMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
     const [catalogForm, setCatalogForm] = useState<CatalogFormState>({
+        id: null,
         name: "",
         price: "",
         averageTime: "00:30",
@@ -524,6 +545,8 @@ export default function Profile() {
     const [serviceActionId, setServiceActionId] = useState<string | null>(null);
     const [serviceActionMessage, setServiceActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
     const [serviceModal, setServiceModal] = useState<ShopServiceAction | null>(null);
+    const [serviceCancelReason, setServiceCancelReason] = useState("");
+    const managerDataHydratedRef = useRef(false);
 
     useEffect(() => {
         if (!canManageShop) return;
@@ -585,29 +608,32 @@ export default function Profile() {
     }, [selectedShopId]);
 
     const refreshManagerData = useCallback(
-        async (signal?: AbortSignal) => {
+        async (signal?: AbortSignal, options?: { background?: boolean }) => {
             if (!canManageShop || !accessToken) {
                 setManagerQueues([]);
                 setManagerServices([]);
                 setManagerTransactions([]);
                 setManagerDataError("");
                 setManagerDataLoading(false);
+                managerDataHydratedRef.current = false;
                 return;
             }
 
-            setManagerDataLoading(true);
+            const background = Boolean(options?.background);
+            if (!background || !managerDataHydratedRef.current) {
+                setManagerDataLoading(true);
+            }
             setManagerDataError("");
 
             try {
                 const headers = {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 };
 
                 const [queuesResponse, servicesResponse, transactionsResponse] = await Promise.all([
-                    fetch(`${API_BASE}/queues/`, { headers, signal }),
-                    fetch(`${API_BASE}/services/`, { headers, signal }),
-                    canManageFinancials ? fetch(`${API_BASE}/account-transactions/`, { headers, signal }) : Promise.resolve(null),
+                    authFetch(`${API_BASE}/queues/`, { headers, signal }),
+                    authFetch(`${API_BASE}/services/`, { headers, signal }),
+                    canManageFinancials ? authFetch(`${API_BASE}/account-transactions/`, { headers, signal }) : Promise.resolve(null),
                 ]);
 
                 if (!queuesResponse.ok) {
@@ -633,19 +659,21 @@ export default function Profile() {
                 setManagerQueues(Array.isArray(queuesData) ? queuesData : []);
                 setManagerServices(Array.isArray(servicesData) ? servicesData : []);
                 setManagerTransactions(Array.isArray(transactionsData) ? transactionsData : []);
+                managerDataHydratedRef.current = true;
             } catch (err) {
                 if (signal?.aborted) return;
                 setManagerQueues([]);
                 setManagerServices([]);
                 setManagerTransactions([]);
                 setManagerDataError(err instanceof Error ? err.message : "Falha ao carregar tarefas");
+                managerDataHydratedRef.current = true;
             } finally {
                 if (!signal?.aborted) {
                     setManagerDataLoading(false);
                 }
             }
         },
-        [accessToken, canManageFinancials, canManageShop]
+        [accessToken, authFetch, canManageFinancials, canManageShop]
     );
 
     useEffect(() => {
@@ -653,6 +681,28 @@ export default function Profile() {
         void refreshManagerData(controller.signal);
         return () => controller.abort();
     }, [refreshManagerData]);
+
+    useEffect(() => {
+        if (!canManageShop || !accessToken || !shopPanelModal) return;
+
+        const refreshOperationalViews = async () => {
+            await Promise.all([refreshManagerData(undefined, { background: true }), reloadShops()]);
+        };
+
+        void refreshOperationalViews();
+
+        const unsubscribe = subscribeWorkspaceSync((payload) => {
+            if (selectedShopId && payload.shopId && payload.shopId !== selectedShopId) {
+                return;
+            }
+
+            void refreshOperationalViews();
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [accessToken, canManageShop, refreshManagerData, reloadShops, selectedShopId, shopPanelModal]);
 
     const refreshCatalog = useCallback(
         async (signal?: AbortSignal) => {
@@ -667,10 +717,9 @@ export default function Profile() {
             setCatalogError("");
 
             try {
-                const response = await fetch(`${API_BASE}/service-types/`, {
+                const response = await authFetch(`${API_BASE}/service-types/`, {
                     headers: {
                         Accept: "application/json",
-                        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                     },
                     signal,
                 });
@@ -692,7 +741,7 @@ export default function Profile() {
                 }
             }
         },
-        [accessToken, canManageCatalog]
+        [authFetch, canManageCatalog]
     );
 
     useEffect(() => {
@@ -702,11 +751,7 @@ export default function Profile() {
     }, [refreshCatalog]);
 
     useEffect(() => {
-        setCatalogForm({
-            name: "",
-            price: "",
-            averageTime: "00:30",
-        });
+        setCatalogForm(buildCatalogFormState());
         setCatalogMessage(null);
     }, [selectedShopId]);
 
@@ -1132,31 +1177,6 @@ export default function Profile() {
                         return String(a.joined_queue_at || "").localeCompare(String(b.joined_queue_at || ""));
                     });
 
-                const activeService = ordered.find((service) => getServiceStatus(service.status) === "IN_SERVICE");
-                if (activeService) {
-                    const customer =
-                        typeof activeService.customer === "object" && activeService.customer ? activeService.customer : null;
-                    const queueName =
-                        typeof activeService.queue === "object" && activeService.queue
-                            ? activeService.queue.name?.trim() || "Fila"
-                            : "Fila";
-
-                    actions.push({
-                        id: `complete-${activeService.id}`,
-                        serviceId: String(activeService.id),
-                        kind: "complete",
-                        title: "Concluir atendimento",
-                        detail: "Marque o servico como concluido quando o atendimento terminar.",
-                        customerName: buildPersonLabel(customer),
-                        serviceName: activeService.service_type?.name?.trim() || `Servico #${activeService.id}`,
-                        queueName,
-                        actionLabel: "Concluir",
-                        createdLabel: formatTaskMoment(activeService.start_time || activeService.joined_queue_at),
-                        statusLabel: getServiceStatusLabel(activeService.status),
-                    });
-                    return;
-                }
-
                 const queued = ordered.filter((service) => getServiceStatus(service.status) === "QUEUED");
                 const nextService = queued[0];
                 if (!nextService) return;
@@ -1176,7 +1196,7 @@ export default function Profile() {
                     customerName: buildPersonLabel(customer),
                     serviceName: nextService.service_type?.name?.trim() || `Servico #${nextService.id}`,
                     queueName,
-                    actionLabel: "Iniciar",
+                    actionLabel: "Atender",
                     createdLabel: formatTaskMoment(nextService.joined_queue_at),
                     statusLabel: getServiceStatusLabel(nextService.status),
                 });
@@ -1194,7 +1214,14 @@ export default function Profile() {
 
     function handleServiceAction(action: ShopServiceAction) {
         setServiceActionMessage(null);
+        setServiceCancelReason("");
         setServiceModal(action);
+    }
+
+    function closeServiceModal() {
+        if (serviceActionId) return;
+        setServiceCancelReason("");
+        setServiceModal(null);
     }
 
     async function confirmShopTaskAction() {
@@ -1214,11 +1241,10 @@ export default function Profile() {
         setManagerActionMessage(null);
 
         try {
-            const response = await fetch(endpoint, {
+            const response = await authFetch(endpoint, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
             });
 
@@ -1228,6 +1254,11 @@ export default function Profile() {
             }
 
             await Promise.all([refreshManagerData(), refreshCurrentAccount()]);
+            emitWorkspaceSync({
+                source: `profile-task:${task.kind}`,
+                shopId: selectedShopId || null,
+                serviceId: task.serviceId,
+            });
             setTaskModal(null);
             setManagerActionMessage({
                 type: "success",
@@ -1254,20 +1285,16 @@ export default function Profile() {
         }
 
         const action = serviceModal;
-        const endpoint =
-            action.kind === "start"
-                ? `${API_BASE}/services/${action.serviceId}/start/`
-                : `${API_BASE}/services/${action.serviceId}/complete/`;
+        const endpoint = `${API_BASE}/services/${action.serviceId}/start/`;
 
         setServiceActionId(action.id);
         setServiceActionMessage(null);
 
         try {
-            const response = await fetch(endpoint, {
+            const response = await authFetch(endpoint, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
             });
 
@@ -1277,18 +1304,76 @@ export default function Profile() {
             }
 
             await Promise.all([refreshManagerData(), reloadShops()]);
+            emitWorkspaceSync({
+                source: `profile-service:${action.kind}`,
+                shopId: selectedShopId || null,
+                serviceId: action.serviceId,
+            });
             setServiceModal(null);
             setServiceActionMessage({
                 type: "success",
-                text:
-                    action.kind === "start"
-                        ? `Atendimento iniciado para ${action.customerName}.`
-                        : `Atendimento concluido para ${action.customerName}.`,
+                text: `Atendimento iniciado para ${action.customerName}.`,
             });
         } catch (err) {
             setServiceActionMessage({
                 type: "error",
                 text: err instanceof Error ? err.message : "Falha ao atualizar o servico.",
+            });
+        } finally {
+            setServiceActionId(null);
+        }
+    }
+
+    async function cancelServiceAction() {
+        if (!serviceModal) return;
+        if (!accessToken) {
+            setServiceActionMessage({ type: "error", text: "Sessao invalida para esta acao." });
+            return;
+        }
+
+        const action = serviceModal;
+        const reason = serviceCancelReason.trim();
+
+        if (!reason) {
+            setServiceActionMessage({ type: "error", text: "Indique o motivo do cancelamento para processar o reembolso." });
+            return;
+        }
+
+        setServiceActionId(`${action.id}:cancel`);
+        setServiceActionMessage(null);
+
+        try {
+            const response = await authFetch(`${API_BASE}/services/${action.serviceId}/cancel/`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    reason,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(await readErrorMessage(response, `Falha ao cancelar servico (${response.status})`));
+            }
+
+            await Promise.all([refreshManagerData(), refreshCurrentAccount(), reloadShops()]);
+            emitWorkspaceSync({
+                source: "profile-service:cancel",
+                shopId: selectedShopId || null,
+                serviceId: action.serviceId,
+            });
+            setServiceModal(null);
+            setServiceCancelReason("");
+            setServiceActionMessage({
+                type: "success",
+                text: `Servico cancelado para ${action.customerName}. Reembolso acionado no sistema.`,
+            });
+        } catch (err) {
+            setServiceActionMessage({
+                type: "error",
+                text: err instanceof Error ? err.message : "Falha ao cancelar o servico.",
             });
         } finally {
             setServiceActionId(null);
@@ -1306,6 +1391,7 @@ export default function Profile() {
         const name = catalogForm.name.trim();
         const price = Number.parseFloat(catalogForm.price);
         const averageTime = normalizeTimeInput(catalogForm.averageTime);
+        const editingServiceId = catalogForm.id;
 
         if (!name) {
             setCatalogMessage({ type: "error", text: "Indique o nome do servico." });
@@ -1321,12 +1407,13 @@ export default function Profile() {
         setCatalogMessage(null);
 
         try {
-            const response = await fetch(`${API_BASE}/service-types/`, {
-                method: "POST",
+            const response = await authFetch(
+                editingServiceId ? `${API_BASE}/service-types/${editingServiceId}/` : `${API_BASE}/service-types/`,
+                {
+                    method: editingServiceId ? "PATCH" : "POST",
                 headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                 },
                 body: JSON.stringify({
                     name,
@@ -1334,22 +1421,32 @@ export default function Profile() {
                     average_time: averageTime,
                     barbershop: /^\d+$/.test(selectedShopId) ? Number(selectedShopId) : selectedShopId,
                 }),
-            });
+                }
+            );
 
             if (!response.ok) {
-                throw new Error(await readErrorMessage(response, `Falha ao guardar servico (${response.status})`));
+                throw new Error(
+                    await readErrorMessage(
+                        response,
+                        editingServiceId
+                            ? `Falha ao atualizar servico (${response.status})`
+                            : `Falha ao guardar servico (${response.status})`
+                    )
+                );
             }
 
-            const created = (await response.json()) as ApiCatalogServiceType;
-            setCatalogServiceTypes((current) => [...current, created]);
-            setCatalogForm({
-                name: "",
-                price: "",
-                averageTime: "00:30",
-            });
+            const saved = (await response.json()) as ApiCatalogServiceType;
+            setCatalogServiceTypes((current) =>
+                editingServiceId
+                    ? current.map((item) => (String(item.id) === editingServiceId ? saved : item))
+                    : [...current, saved]
+            );
+            setCatalogForm(buildCatalogFormState());
             setCatalogMessage({
                 type: "success",
-                text: `Servico adicionado ao catalogo de ${selectedShop?.name || "barbearia"}.`,
+                text: editingServiceId
+                    ? `Servico atualizado no catalogo de ${selectedShop?.name || "barbearia"}.`
+                    : `Servico adicionado ao catalogo de ${selectedShop?.name || "barbearia"}.`,
             });
         } catch (error) {
             setCatalogMessage({
@@ -2169,11 +2266,7 @@ export default function Profile() {
                                                         <span>{action.queueName}</span>
                                                     </div>
                                                     <span
-                                                        className={`profile__service-status${
-                                                            action.kind === "complete"
-                                                                ? " profile__service-status--active"
-                                                                : " profile__service-status--queued"
-                                                        }`}
+                                                        className="profile__service-status profile__service-status--queued"
                                                     >
                                                         {action.statusLabel}
                                                     </span>
@@ -2242,6 +2335,19 @@ export default function Profile() {
                                                         <span>Tempo medio: {formatAverageTimeLabel(item.average_time)}</span>
                                                         <span>ID: {item.id}</span>
                                                     </div>
+                                                    <div className="profile__catalog-service-actions">
+                                                        <button
+                                                            type="button"
+                                                            className="profile__save profile__save--ghost"
+                                                            onClick={() => {
+                                                                setCatalogMessage(null);
+                                                                setCatalogForm(buildCatalogFormState(item));
+                                                            }}
+                                                            disabled={catalogSaving}
+                                                        >
+                                                            Editar
+                                                        </button>
+                                                    </div>
                                                 </article>
                                             ))
                                         ) : (
@@ -2251,8 +2357,12 @@ export default function Profile() {
 
                                     <form className="profile__catalog-form" onSubmit={submitCatalogServiceType}>
                                         <div className="profile__catalog-form-head">
-                                            <strong>Novo servico</strong>
-                                            <span>O servico sera guardado em {selectedShop?.name || "..."}</span>
+                                            <strong>{catalogForm.id ? "Editar servico" : "Novo servico"}</strong>
+                                            <span>
+                                                {catalogForm.id
+                                                    ? `Atualize este servico em ${selectedShop?.name || "..."}`
+                                                    : `O servico sera guardado em ${selectedShop?.name || "..."}`}
+                                            </span>
                                         </div>
 
                                         <div className="profile__catalog-fields profile__catalog-fields--form">
@@ -2300,19 +2410,19 @@ export default function Profile() {
                                             <button
                                                 type="button"
                                                 className="profile__save profile__save--ghost"
-                                                onClick={() =>
-                                                    setCatalogForm({
-                                                        name: "",
-                                                        price: "",
-                                                        averageTime: "00:30",
-                                                    })
-                                                }
+                                                onClick={() => setCatalogForm(buildCatalogFormState())}
                                                 disabled={catalogSaving}
                                             >
                                                 Limpar
                                             </button>
                                             <button type="submit" className="profile__save" disabled={catalogSaving || !selectedShopId}>
-                                                {catalogSaving ? "A guardar..." : "Guardar servico"}
+                                                {catalogSaving
+                                                    ? catalogForm.id
+                                                        ? "A atualizar..."
+                                                        : "A guardar..."
+                                                    : catalogForm.id
+                                                      ? "Atualizar servico"
+                                                      : "Guardar servico"}
                                             </button>
                                         </div>
                                     </form>
@@ -2377,21 +2487,19 @@ export default function Profile() {
             ) : null}
 
             {serviceModal ? (
-                <div className="profile__task-modal-backdrop" onClick={() => (serviceActionId ? undefined : setServiceModal(null))}>
+                <div className="profile__task-modal-backdrop" onClick={closeServiceModal}>
                     <div className="profile__task-modal" onClick={(e) => e.stopPropagation()}>
                         <button
                             type="button"
                             className="profile__task-modal-close"
-                            onClick={() => setServiceModal(null)}
+                            onClick={closeServiceModal}
                             disabled={Boolean(serviceActionId)}
                             aria-label="Fechar"
                         >
                             Ã—
                         </button>
                         <div className="profile__task-modal-header">
-                            <span className="profile__task-modal-kicker">
-                                {serviceModal.kind === "start" ? "Iniciar atendimento" : "Concluir atendimento"}
-                            </span>
+                            <span className="profile__task-modal-kicker">Iniciar atendimento</span>
                             <h3>{serviceModal.title}</h3>
                             <p>{serviceModal.detail}</p>
                         </div>
@@ -2414,18 +2522,35 @@ export default function Profile() {
                             </div>
                         </div>
                         <div className="profile__task-modal-note">
-                            {serviceModal.kind === "start"
-                                ? "Ao confirmar, o atendimento sera iniciado e a fila desta barbearia sera atualizada."
-                                : "Ao confirmar, o atendimento sera concluido e o servico deixara de contar como ativo na fila."}
+                            Ao confirmar, o atendimento sera iniciado. Se precisar cancelar, informe o motivo para que o reembolso seja registado no sistema.
                         </div>
+                        <label className="profile__field">
+                            <span>Motivo do cancelamento</span>
+                            <textarea
+                                className="profile__textarea"
+                                rows={3}
+                                value={serviceCancelReason}
+                                onChange={(event) => setServiceCancelReason(event.target.value)}
+                                placeholder="Ex.: pagamento duplicado apos expiracao da sessao"
+                                disabled={Boolean(serviceActionId)}
+                            />
+                        </label>
                         <div className="profile__task-modal-actions">
                             <button
                                 type="button"
                                 className="profile__save profile__save--ghost"
-                                onClick={() => setServiceModal(null)}
+                                onClick={closeServiceModal}
                                 disabled={Boolean(serviceActionId)}
                             >
-                                Cancelar
+                                Fechar
+                            </button>
+                            <button
+                                type="button"
+                                className="profile__save profile__save--danger"
+                                onClick={cancelServiceAction}
+                                disabled={serviceActionId === `${serviceModal.id}:cancel` || !serviceCancelReason.trim()}
+                            >
+                                {serviceActionId === `${serviceModal.id}:cancel` ? "A cancelar..." : "Cancelar e reembolsar"}
                             </button>
                             <button
                                 type="button"

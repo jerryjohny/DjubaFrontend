@@ -378,8 +378,11 @@ function buildQueues(
                     serviceId: String(service.id),
                     serviceStatus: String(service.status || '').toUpperCase() || null,
                     serviceName: service.service_type?.name?.trim() || null,
+                    serviceAverageTime: service.service_type?.average_time ?? null,
                     position: servicePosition === Number.MAX_SAFE_INTEGER ? null : servicePosition,
                     joinedQueueAt: service.joined_queue_at ?? null,
+                    startTime: service.start_time ?? null,
+                    finishTime: service.finish_time ?? null,
                 } satisfies QueueClientInfo;
             }),
             currentUserServiceId:
@@ -461,7 +464,7 @@ function mapApiShop(
 }
 
 export function useShops(): UseShopsResult {
-    const { user, accessToken } = useAuth();
+    const { user, accessToken, authFetch } = useAuth();
     const [shops, setShops] = useState<ShopInfo[]>([]);
     const [enterableShopIds, setEnterableShopIds] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
@@ -494,9 +497,9 @@ export function useShops(): UseShopsResult {
                         signal: controller.signal,
                         headers,
                     }).catch(() => null),
-                    fetch('/api/barbers/', {
+                    authFetch('/api/barbers/', {
                         signal: controller.signal,
-                        headers: accessToken ? { ...headers, Authorization: `Bearer ${accessToken}` } : headers,
+                        headers,
                     }).catch(() => null),
                 ]);
 
@@ -646,7 +649,7 @@ export function useShops(): UseShopsResult {
         void loadShops();
 
         return () => controller.abort();
-    }, [accessToken, reloadToken, user]);
+    }, [accessToken, authFetch, reloadToken, user]);
 
     return useMemo(
         () => ({

@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Role } from './roleContext';
 
 export type AuthUser = {
@@ -25,6 +25,7 @@ type AuthContextValue = {
     googleLogin: (payload: { idToken?: string; accessToken?: string }) => Promise<void>;
     register: (payload: RegisterPayload) => Promise<void>;
     updateUser: (payload: UpdateUserPayload) => Promise<AuthUser>;
+    authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     logout: () => void;
 };
 
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [refreshToken, setRefreshToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const refreshRequestRef = useRef<Promise<string | null> | null>(null);
 
     useEffect(() => {
         const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -143,6 +145,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             persist(nextAuth);
         },
         [persist]
+    );
+
+    const refreshAccessToken = useCallback(async () => {
+        if (!refreshToken) {
+            logout();
+            return null;
+        }
+
+        if (refreshRequestRef.current) {
+            return refreshRequestRef.current;
+        }
+
+        refreshRequestRef.current = (async () => {
+            try {
+                const response = await fetch(`${API_BASE}/token/refresh/`, {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ refresh: refreshToken }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Falha ao renovar sessao (${response.status})`);
+                }
+
+                const data = (await response.json()) as { access?: string; refresh?: string };
+                const nextAccess = data.access ?? null;
+                const nextRefresh = data.refresh ?? refreshToken;
+
+                if (!nextAccess || !user) {
+                    throw new Error('Resposta invalida ao renovar sessao');
+                }
+
+                const nextRole = mapRole(user.role) ?? role ?? 'C';
+                const nextAuth: StoredAuth = {
+                    accessToken: nextAccess,
+                    refreshToken: nextRefresh,
+                    user,
+                    role: nextRole,
+                };
+
+                setAccessToken(nextAccess);
+                setRefreshToken(nextRefresh);
+                persist(nextAuth);
+
+                return nextAccess;
+            } catch {
+                logout();
+                return null;
+            } finally {
+                refreshRequestRef.current = null;
+            }
+        })();
+
+        return refreshRequestRef.current;
+    }, [logout, persist, refreshToken, role, user]);
+
+    const authFetch = useCallback(
+        async (input: RequestInfo | URL, init: RequestInit = {}) => {
+            const buildHeaders = (token: string | null) => {
+                const headers = new Headers(init.headers || {});
+                if (token) {
+                    headers.set('Authorization', `Bearer ${token}`);
+                } else {
+                    headers.delete('Authorization');
+                }
+                return headers;
+            };
+
+            const performFetch = (token: string | null) =>
+                fetch(input, {
+                    ...init,
+                    headers: buildHeaders(token),
+                });
+
+            let response = await performFetch(accessToken);
+
+            if (response.status !== 401 || !refreshToken) {
+                return response;
+            }
+
+            const nextAccess = await refreshAccessToken();
+            if (!nextAccess) {
+                return response;
+            }
+
+            response = await performFetch(nextAccess);
+            return response;
+        },
+        [accessToken, refreshAccessToken, refreshToken]
     );
 
     const fetchAndSetUser = useCallback(
@@ -233,11 +327,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 throw new Error('Sessao invalida');
             }
 
-            const updatedUser = (await fetchJson(`${API_BASE}/users/${user.id}/`, {
+            const response = await authFetch(`${API_BASE}/users/${user.id}/`, {
                 method: 'PATCH',
-                headers: { Authorization: `Bearer ${accessToken}` },
                 body: JSON.stringify(payload),
-            })) as AuthUser;
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || `Falha ao atualizar utilizador (${response.status})`);
+            }
+
+            const updatedUser = (await response.json()) as AuthUser;
 
             const mergedUser: AuthUser = { ...user, ...updatedUser };
             const nextRole = mapRole(mergedUser.role) ?? role ?? 'C';
@@ -254,7 +355,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             return mergedUser;
         },
-        [accessToken, persist, refreshToken, role, user]
+        [accessToken, authFetch, persist, refreshToken, role, user]
     );
 
     const value = useMemo<AuthContextValue>(
@@ -268,9 +369,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             googleLogin,
             register,
             updateUser,
+            authFetch,
             logout,
         }),
-        [user, role, accessToken, refreshToken, loading, login, googleLogin, register, updateUser, logout]
+        [user, role, accessToken, refreshToken, loading, login, googleLogin, register, updateUser, authFetch, logout]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

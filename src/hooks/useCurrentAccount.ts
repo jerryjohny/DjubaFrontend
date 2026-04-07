@@ -37,7 +37,7 @@ function parseBalance(value: unknown) {
 }
 
 export function useCurrentAccount() {
-    const { user, accessToken } = useAuth();
+    const { user, accessToken, authFetch } = useAuth();
     const [accounts, setAccounts] = useState<ApiAccount[]>([]);
     const [account, setAccount] = useState<ApiAccount | null>(null);
     const [loading, setLoading] = useState(false);
@@ -56,10 +56,9 @@ export function useCurrentAccount() {
         setError(null);
 
         try {
-            const response = await fetch(`${API_BASE}/accounts/`, {
+            const response = await authFetch(`${API_BASE}/accounts/`, {
                 headers: {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
             });
 
@@ -84,7 +83,7 @@ export function useCurrentAccount() {
         } finally {
             setLoading(false);
         }
-    }, [accessToken, user?.id]);
+    }, [accessToken, authFetch, user?.id]);
 
     useEffect(() => {
         void refresh();

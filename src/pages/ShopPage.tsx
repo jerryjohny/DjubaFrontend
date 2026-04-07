@@ -4,6 +4,7 @@ import { useAuth } from "../authContext";
 import { QueueInfo, QueueStatus, ShopInfo } from "../data/shops";
 import { useShops } from "../hooks/useShops";
 import { useCurrentAccount } from "../hooks/useCurrentAccount";
+import { emitWorkspaceSync } from "../utils/workspaceSync";
 import "./ShopPage.css";
 
 type ApiServiceType = {
@@ -35,8 +36,11 @@ type QueueClientState = {
     serviceId?: string | null;
     serviceStatus?: string | null;
     serviceName?: string | null;
+    serviceAverageTime?: string | null;
     position?: number | null;
     joinedQueueAt?: string | null;
+    startTime?: string | null;
+    finishTime?: string | null;
 };
 
 type QueueBarberOption = {
@@ -75,7 +79,25 @@ type ApiBarberProfile = {
 type ApiServiceActionResponse = {
     status?: string | null;
     position?: number | string | null;
+    start_time?: string | null;
+    finish_time?: string | null;
+    service_type?: {
+        average_time?: string | null;
+        name?: string | null;
+    } | null;
 };
+
+type ServiceAutomationState = {
+    phase: "complete" | "start";
+    queueId: string;
+    queueName: string;
+    serviceId: string;
+    clientName: string;
+    remainingSeconds: number;
+    isPaused: boolean;
+};
+
+const AUTO_START_QUEUE_STORAGE_KEY = "djuba:auto-start-queue";
 
 const JOIN_FEE_MT = 10;
 
@@ -115,6 +137,114 @@ function parseMoney(value: unknown): number | null {
 
 function formatMoney(value: number) {
     return `${value.toLocaleString("pt-PT")} MT`;
+}
+
+function parseDurationToSeconds(value?: string | null) {
+    if (!value) return null;
+    const parts = value.split(":").map((part) => Number.parseInt(part, 10));
+    if (parts.length !== 3 || parts.some((part) => Number.isNaN(part) || part < 0)) {
+        return null;
+    }
+
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+function formatCountdown(totalSeconds: number) {
+    const safeSeconds = Math.max(0, totalSeconds);
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const seconds = safeSeconds % 60;
+
+    if (hours > 0) {
+        return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+    }
+
+    return [minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+function getCountdownAudioContext() {
+    if (typeof window === "undefined") return null;
+
+    const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    return AudioContextCtor ? new AudioContextCtor() : null;
+}
+
+function playTickCue(context: AudioContext, currentTime: number) {
+    const primaryOscillator = context.createOscillator();
+    const secondaryOscillator = context.createOscillator();
+    const gainNode = context.createGain();
+
+    primaryOscillator.type = "sawtooth";
+    secondaryOscillator.type = "square";
+
+    primaryOscillator.frequency.setValueAtTime(1420, currentTime);
+    primaryOscillator.frequency.exponentialRampToValueAtTime(1180, currentTime + 0.16);
+    secondaryOscillator.frequency.setValueAtTime(1480, currentTime);
+    secondaryOscillator.frequency.exponentialRampToValueAtTime(1240, currentTime + 0.16);
+    secondaryOscillator.detune.setValueAtTime(18, currentTime);
+
+    gainNode.gain.setValueAtTime(0.0001, currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.16, currentTime + 0.012);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, currentTime + 0.18);
+
+    primaryOscillator.connect(gainNode);
+    secondaryOscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+
+    primaryOscillator.start(currentTime);
+    secondaryOscillator.start(currentTime);
+    primaryOscillator.stop(currentTime + 0.18);
+    secondaryOscillator.stop(currentTime + 0.18);
+}
+
+function playChimeCue(context: AudioContext, currentTime: number) {
+    const firstOscillator = context.createOscillator();
+    const firstGain = context.createGain();
+    firstOscillator.type = "sine";
+    firstOscillator.frequency.setValueAtTime(740, currentTime);
+    firstOscillator.frequency.exponentialRampToValueAtTime(880, currentTime + 0.16);
+    firstGain.gain.setValueAtTime(0.0001, currentTime);
+    firstGain.gain.exponentialRampToValueAtTime(0.045, currentTime + 0.04);
+    firstGain.gain.exponentialRampToValueAtTime(0.0001, currentTime + 0.2);
+    firstOscillator.connect(firstGain);
+    firstGain.connect(context.destination);
+    firstOscillator.start(currentTime);
+    firstOscillator.stop(currentTime + 0.22);
+
+    const secondOscillator = context.createOscillator();
+    const secondGain = context.createGain();
+    secondOscillator.type = "triangle";
+    secondOscillator.frequency.setValueAtTime(990, currentTime + 0.08);
+    secondOscillator.frequency.exponentialRampToValueAtTime(1180, currentTime + 0.24);
+    secondGain.gain.setValueAtTime(0.0001, currentTime + 0.08);
+    secondGain.gain.exponentialRampToValueAtTime(0.04, currentTime + 0.12);
+    secondGain.gain.exponentialRampToValueAtTime(0.0001, currentTime + 0.28);
+    secondOscillator.connect(secondGain);
+    secondGain.connect(context.destination);
+    secondOscillator.start(currentTime + 0.08);
+    secondOscillator.stop(currentTime + 0.3);
+}
+
+function getClientServiceCountdown(client?: Pick<QueueClientState, "serviceStatus" | "serviceAverageTime" | "startTime"> | null, nowMs = Date.now()) {
+    if (!client || getServiceStatus(client.serviceStatus) !== "IN_SERVICE") {
+        return null;
+    }
+
+    const durationSeconds = parseDurationToSeconds(client.serviceAverageTime);
+    const startTimeMs = client.startTime ? Date.parse(client.startTime) : Number.NaN;
+
+    if (!durationSeconds || !Number.isFinite(startTimeMs)) {
+        return null;
+    }
+
+    const endTimeMs = startTimeMs + durationSeconds * 1000;
+    const remainingMs = Math.max(0, endTimeMs - nowMs);
+
+    return {
+        durationSeconds,
+        remainingSeconds: Math.ceil(remainingMs / 1000),
+        completed: remainingMs <= 0,
+    };
 }
 
 function formatQueueDate(value?: string | null) {
@@ -239,7 +369,7 @@ function createQueueClients(
 export default function ShopPage() {
     const { shopId } = useParams();
     const navigate = useNavigate();
-    const { user: authUser, accessToken } = useAuth();
+    const { user: authUser, accessToken, authFetch } = useAuth();
     const { shops, enterableShopIds, loading, reload } = useShops();
     const apiRole = String(authUser?.role ?? "").toUpperCase();
     const hasRestrictedMarketplaceAccess = apiRole === "SHOP_ADMIN" || apiRole === "BARBER";
@@ -280,6 +410,15 @@ export default function ShopPage() {
     const [swapTargetServiceId, setSwapTargetServiceId] = useState("");
     const queueRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const [canScrollRight, setCanScrollRight] = useState<Record<string, boolean>>({});
+    const [serviceTimerTick, setServiceTimerTick] = useState(() => Date.now());
+    const [serviceAutomation, setServiceAutomation] = useState<ServiceAutomationState | null>(null);
+    const [serviceAutomationPending, setServiceAutomationPending] = useState<"start" | "complete" | null>(null);
+    const [queuedAutoStartQueueId, setQueuedAutoStartQueueId] = useState<string | null>(() => {
+        if (typeof window === "undefined") return null;
+        return window.sessionStorage.getItem(AUTO_START_QUEUE_STORAGE_KEY);
+    });
+    const countdownAudioContextRef = useRef<AudioContext | null>(null);
+    const lastCountdownCueRef = useRef<string | null>(null);
 
     const shop = useMemo<ShopInfo | undefined>(() => shops.find((s) => s.id === shopId), [shopId, shops]);
     const canEnterCurrentShop = useMemo(() => {
@@ -353,6 +492,48 @@ export default function ShopPage() {
 
         return null;
     }, [activeClientModal, modalCanFinishSelected, modalCanStartSelected]);
+    const activeServiceCountdown = useMemo(
+        () => getClientServiceCountdown(activeClientModal?.client ?? null, serviceTimerTick),
+        [activeClientModal, serviceTimerTick]
+    );
+    const expiredServiceCandidate = useMemo(() => {
+        if (!shop || !canManageQueueClients || !accessToken) return null;
+
+        for (const queue of shop.queues) {
+            if (queue.status !== "open") continue;
+
+            const clients = [...createQueueClients(queue, authUser ?? undefined)].sort(compareQueueClients);
+            const activeClient = clients.find(
+                (client) => client.serviceId && getServiceStatus(client.serviceStatus) === "IN_SERVICE"
+            );
+
+            if (!activeClient) continue;
+
+            const countdown = getClientServiceCountdown(activeClient, serviceTimerTick);
+            if (!countdown?.completed) continue;
+
+            return { queue, client: activeClient };
+        }
+
+        return null;
+    }, [accessToken, authUser, canManageQueueClients, serviceTimerTick, shop]);
+    const queuedAutoStartCandidate = useMemo(() => {
+        if (!shop || !queuedAutoStartQueueId || !canManageQueueClients || !accessToken) return null;
+
+        const queue = shop.queues.find((item) => item.id === queuedAutoStartQueueId);
+        if (!queue || queue.status !== "open") return null;
+
+        const clients = [...createQueueClients(queue, authUser ?? undefined)].sort(compareQueueClients);
+        const activeClient = clients.find((client) => getServiceStatus(client.serviceStatus) === "IN_SERVICE");
+        if (activeClient) return null;
+
+        const queuedClient = clients.find(
+            (client) => client.serviceId && getServiceStatus(client.serviceStatus) === "QUEUED"
+        );
+        if (!queuedClient) return null;
+
+        return { queue, client: queuedClient };
+    }, [accessToken, authUser, canManageQueueClients, queuedAutoStartQueueId, shop]);
     const currentQueueBarberLabel = useMemo(() => {
         if (!queueControlModal?.queue.assignedBarberId) return "Sem barbeiro atribuido";
 
@@ -366,6 +547,14 @@ export default function ShopPage() {
     const tipAmount = parseMoney(tipAmountInput) ?? 0;
     const totalDebit = JOIN_FEE_MT + serviceCharge + tipAmount;
     const currentQueueDate = getCurrentMaputoDateKey();
+
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            setServiceTimerTick(Date.now());
+        }, 1000);
+
+        return () => window.clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (!shop) {
@@ -382,11 +571,10 @@ export default function ShopPage() {
             setServiceTypesError(null);
 
             try {
-                const response = await fetch("/api/service-types/", {
+                const response = await authFetch("/api/service-types/", {
                     signal: controller.signal,
                     headers: {
                         Accept: "application/json",
-                        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                     },
                 });
 
@@ -435,11 +623,10 @@ export default function ShopPage() {
             setQueueControlError("");
 
             try {
-                const response = await fetch(`/api/barbers/?shop=${toRequestId(currentShop.id)}`, {
+                const response = await authFetch(`/api/barbers/?shop=${toRequestId(currentShop.id)}`, {
                     signal: controller.signal,
                     headers: {
                         Accept: "application/json",
-                        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                     },
                 });
 
@@ -499,6 +686,260 @@ export default function ShopPage() {
 
         return () => controller.abort();
     }, [accessToken, apiRole, authUser?.id, createQueueModalOpen, queueControlModal, shop]);
+
+    useEffect(() => {
+        if (!shop) return;
+
+        setActiveClientModal((current) => {
+            if (!current) return current;
+
+            const nextQueue = shop.queues.find((queue) => queue.id === current.queue.id);
+            if (!nextQueue) return null;
+
+            const nextClients = [...createQueueClients(nextQueue, authUser ?? undefined)].sort(compareQueueClients);
+            const nextClient =
+                (current.client.serviceId
+                    ? nextClients.find((client) => client.serviceId === current.client.serviceId)
+                    : undefined) ?? nextClients.find((client) => client.id === current.client.id);
+
+            if (!nextClient) return null;
+
+            return {
+                ...current,
+                queue: nextQueue,
+                client: nextClient,
+                clients: nextClients,
+            };
+        });
+    }, [authUser, shop]);
+
+    useEffect(() => {
+        if (!expiredServiceCandidate) return;
+
+        setServiceAutomation((current) => {
+            if (current) return current;
+
+            return {
+                phase: "complete",
+                queueId: expiredServiceCandidate.queue.id,
+                queueName: expiredServiceCandidate.queue.name,
+                serviceId: expiredServiceCandidate.client.serviceId || "",
+                clientName: expiredServiceCandidate.client.name,
+                remainingSeconds: 10,
+                isPaused: false,
+            };
+        });
+    }, [expiredServiceCandidate]);
+
+    useEffect(() => {
+        if (!queuedAutoStartCandidate) return;
+
+        setServiceAutomation((current) => {
+            if (current) return current;
+
+            return {
+                phase: "start",
+                queueId: queuedAutoStartCandidate.queue.id,
+                queueName: queuedAutoStartCandidate.queue.name,
+                serviceId: queuedAutoStartCandidate.client.serviceId || "",
+                clientName: queuedAutoStartCandidate.client.name,
+                remainingSeconds: 10,
+                isPaused: false,
+            };
+        });
+    }, [queuedAutoStartCandidate]);
+
+    useEffect(() => {
+        setServiceAutomation((current) => {
+            if (!current) return current;
+
+            if (current.phase === "complete") {
+                if (!expiredServiceCandidate || expiredServiceCandidate.client.serviceId !== current.serviceId) {
+                    return null;
+                }
+            }
+
+            if (current.phase === "start") {
+                if (!queuedAutoStartCandidate || queuedAutoStartCandidate.client.serviceId !== current.serviceId) {
+                    return null;
+                }
+            }
+
+            return current;
+        });
+    }, [expiredServiceCandidate, queuedAutoStartCandidate]);
+
+    useEffect(() => {
+        if (!serviceAutomation || serviceAutomationPending || serviceAutomation.isPaused || serviceAutomation.remainingSeconds <= 0) return;
+
+        const timeout = window.setTimeout(() => {
+            setServiceAutomation((current) =>
+                current ? { ...current, remainingSeconds: Math.max(0, current.remainingSeconds - 1) } : current
+            );
+        }, 1000);
+
+        return () => window.clearTimeout(timeout);
+    }, [serviceAutomation, serviceAutomationPending]);
+
+    useEffect(() => {
+        const automation = serviceAutomation;
+        if (!automation || serviceAutomationPending || automation.isPaused || automation.remainingSeconds > 0 || !accessToken) return;
+        const activeAutomation: ServiceAutomationState = automation;
+
+        let cancelled = false;
+
+        async function runAutomatedTransition() {
+            setServiceAutomationPending(activeAutomation.phase);
+
+            try {
+                const endpoint =
+                    activeAutomation.phase === "complete"
+                        ? `/api/services/${toRequestId(activeAutomation.serviceId)}/complete/`
+                        : `/api/services/${toRequestId(activeAutomation.serviceId)}/start/`;
+
+                const response = await authFetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                        Accept: "application/json",
+                    },
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(
+                        text || `Falha ao ${activeAutomation.phase === "complete" ? "concluir" : "iniciar"} automaticamente`
+                    );
+                }
+
+                if (cancelled) return;
+
+                if (activeAutomation.phase === "complete") {
+                    setClientActionSuccess(`Atendimento concluido automaticamente para ${activeAutomation.clientName}.`);
+                    if (typeof window !== "undefined") {
+                        window.sessionStorage.setItem(AUTO_START_QUEUE_STORAGE_KEY, activeAutomation.queueId);
+                    }
+                    emitWorkspaceSync({
+                        source: "shop-page:auto-complete",
+                        shopId: shop?.id ?? null,
+                        queueId: activeAutomation.queueId,
+                        serviceId: activeAutomation.serviceId,
+                    });
+                    setActiveClientModal((current) =>
+                        current?.client.serviceId === activeAutomation.serviceId ? null : current
+                    );
+                } else {
+                    setClientActionSuccess(`Atendimento iniciado automaticamente para ${activeAutomation.clientName}.`);
+                    if (typeof window !== "undefined") {
+                        window.sessionStorage.removeItem(AUTO_START_QUEUE_STORAGE_KEY);
+                    }
+                    emitWorkspaceSync({
+                        source: "shop-page:auto-start",
+                        shopId: shop?.id ?? null,
+                        queueId: activeAutomation.queueId,
+                        serviceId: activeAutomation.serviceId,
+                    });
+                    setQueuedAutoStartQueueId(null);
+                }
+
+                setServiceAutomation(null);
+                if (activeAutomation.phase === "complete" && typeof window !== "undefined") {
+                    window.setTimeout(() => {
+                        window.location.reload();
+                    }, 80);
+                    return;
+                }
+
+                reload();
+            } catch (error) {
+                if (cancelled) return;
+                setClientActionError(
+                    error instanceof Error ? error.message : "Falha ao executar a transicao automatica do atendimento"
+                );
+                setServiceAutomation(null);
+            } finally {
+                if (!cancelled) {
+                    setServiceAutomationPending(null);
+                }
+            }
+        }
+
+        void runAutomatedTransition();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [accessToken, reload, serviceAutomation]);
+
+    useEffect(() => {
+        if (!queuedAutoStartQueueId) return;
+        if (loading) return;
+
+        const matchingQueue = shop?.queues.find((queue) => queue.id === queuedAutoStartQueueId);
+        if (!matchingQueue) {
+            if (typeof window !== "undefined") {
+                window.sessionStorage.removeItem(AUTO_START_QUEUE_STORAGE_KEY);
+            }
+            setQueuedAutoStartQueueId(null);
+            return;
+        }
+
+        if (!queuedAutoStartCandidate) {
+            const clients = [...createQueueClients(matchingQueue, authUser ?? undefined)].sort(compareQueueClients);
+            const hasQueuedClient = clients.some((client) => getServiceStatus(client.serviceStatus) === "QUEUED");
+            const hasActiveClient = clients.some((client) => getServiceStatus(client.serviceStatus) === "IN_SERVICE");
+
+            if (!hasQueuedClient || hasActiveClient || matchingQueue.status !== "open") {
+                if (typeof window !== "undefined") {
+                    window.sessionStorage.removeItem(AUTO_START_QUEUE_STORAGE_KEY);
+                }
+                setQueuedAutoStartQueueId(null);
+            }
+        }
+    }, [authUser, loading, queuedAutoStartCandidate, queuedAutoStartQueueId, shop]);
+
+    useEffect(() => {
+        if (!serviceAutomation || serviceAutomation.remainingSeconds <= 0) {
+            lastCountdownCueRef.current = null;
+            return;
+        }
+
+        const cueKey = `${serviceAutomation.phase}:${serviceAutomation.serviceId}:${serviceAutomation.remainingSeconds}`;
+        if (lastCountdownCueRef.current === cueKey) {
+            return;
+        }
+        lastCountdownCueRef.current = cueKey;
+
+        const context =
+            countdownAudioContextRef.current && countdownAudioContextRef.current.state !== "closed"
+                ? countdownAudioContextRef.current
+                : getCountdownAudioContext();
+
+        if (!context) return;
+        countdownAudioContextRef.current = context;
+
+        void context.resume().then(() => {
+            const now = context.currentTime;
+            if (serviceAutomation.phase === "complete") {
+                playTickCue(context, now);
+            } else {
+                playChimeCue(context, now);
+            }
+        }).catch(() => {
+            // Ignore browsers that block autoplay until a user gesture.
+        });
+    }, [serviceAutomation]);
+
+    useEffect(() => {
+        return () => {
+            const context = countdownAudioContextRef.current;
+            countdownAudioContextRef.current = null;
+            if (context && context.state !== "closed") {
+                void context.close().catch(() => {
+                    // Ignore close errors during teardown.
+                });
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (!shop) return;
@@ -645,12 +1086,11 @@ export default function ShopPage() {
         setJoinError("");
 
         try {
-            const response = await fetch("/api/services/", {
+            const response = await authFetch("/api/services/", {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
                 body: JSON.stringify({
                     service_type: toRequestId(selectedService.id),
@@ -670,6 +1110,11 @@ export default function ShopPage() {
             setJoinStep("select");
             setPayServiceViaAccount(false);
             setTipAmountInput("");
+            emitWorkspaceSync({
+                source: "shop-page:join",
+                shopId: joinModal.shop.id,
+                queueId: joinModal.queue.id,
+            });
             reload();
         } catch (err) {
             setJoinError(err instanceof Error ? err.message : "Falha ao entrar na fila");
@@ -689,11 +1134,10 @@ export default function ShopPage() {
         setJoinSuccess("");
 
         try {
-            const response = await fetch(`/api/services/${toRequestId(queue.currentUserServiceId)}/leave/`, {
+            const response = await authFetch(`/api/services/${toRequestId(queue.currentUserServiceId)}/leave/`, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
             });
 
@@ -704,6 +1148,12 @@ export default function ShopPage() {
 
             setActiveClientModal(null);
             setJoinSuccess(`Saiu da ${queue.name} com sucesso.`);
+            emitWorkspaceSync({
+                source: "shop-page:leave",
+                shopId: shop?.id ?? null,
+                queueId: queue.id,
+                serviceId: queue.currentUserServiceId,
+            });
             reload();
         } catch (err) {
             setJoinError(err instanceof Error ? err.message : "Falha ao sair da fila");
@@ -728,12 +1178,11 @@ export default function ShopPage() {
         setJoinSuccess("");
 
         try {
-            const response = await fetch(`/api/services/${toRequestId(currentUserShopServiceId)}/transfer/`, {
+            const response = await authFetch(`/api/services/${toRequestId(currentUserShopServiceId)}/transfer/`, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
                 body: JSON.stringify({
                     target_queue_id: toRequestId(targetQueue.id),
@@ -747,6 +1196,12 @@ export default function ShopPage() {
 
             setActiveClientModal(null);
             setJoinSuccess(`Mudou para ${targetQueue.name} sem nova taxa de fila.`);
+            emitWorkspaceSync({
+                source: "shop-page:transfer",
+                shopId: shop?.id ?? null,
+                queueId: targetQueue.id,
+                serviceId: currentUserShopServiceId,
+            });
             reload();
         } catch (error) {
             setJoinError(error instanceof Error ? error.message : "Falha ao mudar de fila");
@@ -795,12 +1250,11 @@ export default function ShopPage() {
                 setQueueControlSuccess("");
 
                 try {
-                    const response = await fetch(`/api/queues/${toRequestId(queueControlModal.queue.id)}/close/`, {
+                    const response = await authFetch(`/api/queues/${toRequestId(queueControlModal.queue.id)}/close/`, {
                         method: "POST",
                         headers: {
                             Accept: "application/json",
                             "Content-Type": "application/json",
-                            Authorization: `Bearer ${accessToken}`,
                         },
                         body: JSON.stringify({
                             note: queueCloseNote.trim(),
@@ -816,6 +1270,11 @@ export default function ShopPage() {
                     setQueueControlModal(null);
                     setSelectedQueueBarberId("");
                     setQueueCloseNote("");
+                    emitWorkspaceSync({
+                        source: "shop-page:queue-close",
+                        shopId: shop?.id ?? null,
+                        queueId: queueControlModal.queue.id,
+                    });
                     reload();
                 } catch (error) {
                     setQueueControlError(error instanceof Error ? error.message : "Falha ao atualizar a fila");
@@ -839,12 +1298,11 @@ export default function ShopPage() {
         setQueueControlSuccess("");
 
         try {
-            const response = await fetch(`/api/queues/${toRequestId(queueControlModal.queue.id)}/`, {
+            const response = await authFetch(`/api/queues/${toRequestId(queueControlModal.queue.id)}/`, {
                 method: "PATCH",
                 headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
                 body: JSON.stringify(payload),
             });
@@ -858,6 +1316,11 @@ export default function ShopPage() {
             setQueueControlModal(null);
             setSelectedQueueBarberId("");
             setQueueCloseNote("");
+            emitWorkspaceSync({
+                source: "shop-page:queue-control",
+                shopId: shop?.id ?? null,
+                queueId: queueControlModal.queue.id,
+            });
             reload();
         } catch (error) {
             setQueueControlError(error instanceof Error ? error.message : "Falha ao atualizar a fila");
@@ -882,12 +1345,11 @@ export default function ShopPage() {
         setQueueControlSuccess("");
 
         try {
-            const response = await fetch("/api/queues/", {
+            const response = await authFetch("/api/queues/", {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
                 body: JSON.stringify({
                     shop: toRequestId(shop.id),
@@ -905,6 +1367,10 @@ export default function ShopPage() {
             setQueueControlSuccess("Nova fila criada e aberta com sucesso.");
             setCreateQueueModalOpen(false);
             setCreateQueueBarberId("");
+            emitWorkspaceSync({
+                source: "shop-page:create-queue",
+                shopId: shop.id,
+            });
             reload();
         } catch (error) {
             setCreateQueueError(error instanceof Error ? error.message : "Falha ao criar a fila");
@@ -964,12 +1430,11 @@ export default function ShopPage() {
         setClientActionSuccess("");
 
         try {
-            const response = await fetch(endpoint, {
+            const response = await authFetch(endpoint, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
                     ...(body ? { "Content-Type": "application/json" } : {}),
-                    Authorization: `Bearer ${accessToken}`,
                 },
                 ...(body ? { body } : {}),
             });
@@ -999,7 +1464,14 @@ export default function ShopPage() {
                     const updatedClient: QueueClientState = {
                         ...current.client,
                         serviceStatus: nextStatus,
+                        serviceAverageTime:
+                            payload.service_type?.average_time ?? current.client.serviceAverageTime ?? null,
                         position: nextPosition,
+                        startTime:
+                            action === "start"
+                                ? payload.start_time ?? current.client.startTime ?? new Date().toISOString()
+                                : current.client.startTime ?? null,
+                        finishTime: action === "complete" ? payload.finish_time ?? new Date().toISOString() : current.client.finishTime ?? null,
                     };
 
                     const nextClients = current.clients.map((client) =>
@@ -1007,7 +1479,16 @@ export default function ShopPage() {
                             ? {
                                   ...client,
                                   serviceStatus: nextStatus,
+                                  serviceAverageTime: payload.service_type?.average_time ?? client.serviceAverageTime ?? null,
                                   position: nextPosition,
+                                  startTime:
+                                      action === "start"
+                                          ? payload.start_time ?? client.startTime ?? new Date().toISOString()
+                                          : client.startTime ?? null,
+                                  finishTime:
+                                      action === "complete"
+                                          ? payload.finish_time ?? new Date().toISOString()
+                                          : client.finishTime ?? null,
                               }
                             : client
                     );
@@ -1025,6 +1506,12 @@ export default function ShopPage() {
                 setActiveClientModal(null);
                 setSwapTargetServiceId("");
             }
+            emitWorkspaceSync({
+                source: `shop-page:${action}`,
+                shopId: shop?.id ?? null,
+                queueId: activeClientModal.queue.id,
+                serviceId: selectedClient.serviceId,
+            });
             reload();
         } catch (err) {
             setClientActionError(err instanceof Error ? err.message : "Falha ao executar a acao");
@@ -1499,6 +1986,26 @@ export default function ShopPage() {
                                 <strong>{activeClientModal.client.name}</strong>
                                 <span>{activeClientModal.client.phone}</span>
                                 <small>{activeClientModal.queue.name}</small>
+                                <div className="shop__profile-stack shop__profile-stack--compact">
+                                    <div className="shop__profile-detail">
+                                        <span>Estado</span>
+                                        <strong>{getServiceStatusLabel(activeClientModal.client.serviceStatus)}</strong>
+                                    </div>
+                                    {activeServiceCountdown && (
+                                        <div
+                                            className={`shop__profile-detail shop__profile-detail--timer${
+                                                activeServiceCountdown.completed ? " shop__profile-detail--timer-finished" : ""
+                                            }`}
+                                        >
+                                            <span>Tempo restante</span>
+                                            <strong>
+                                                {activeServiceCountdown.completed
+                                                    ? "00:00"
+                                                    : formatCountdown(activeServiceCountdown.remainingSeconds)}
+                                            </strong>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ) : activeClientModal.mode === "manage" ? (
                             <div className="shop__profile-split">
@@ -1524,6 +2031,20 @@ export default function ShopPage() {
                                             <div className="shop__profile-detail">
                                                 <span>Servico</span>
                                                 <strong>{activeClientModal.client.serviceName}</strong>
+                                            </div>
+                                        )}
+                                        {activeServiceCountdown && (
+                                            <div
+                                                className={`shop__profile-detail shop__profile-detail--timer${
+                                                    activeServiceCountdown.completed ? " shop__profile-detail--timer-finished" : ""
+                                                }`}
+                                            >
+                                                <span>Tempo restante</span>
+                                                <strong>
+                                                    {activeServiceCountdown.completed
+                                                        ? "00:00"
+                                                        : formatCountdown(activeServiceCountdown.remainingSeconds)}
+                                                </strong>
                                             </div>
                                         )}
                                         {typeof activeClientModal.client.position === "number" &&
@@ -1610,6 +2131,12 @@ export default function ShopPage() {
                                                 Inicie primeiro {modalFirstQueuedClient?.name || "o cliente no topo da fila"}.
                                             </p>
                                         )}
+
+                                    {activeServiceCountdown?.completed && (
+                                        <p className="shop__profile-note">
+                                            O tempo previsto terminou. Conclua o atendimento quando o servico estiver efetivamente encerrado.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -1626,6 +2153,21 @@ export default function ShopPage() {
                                 <div className="shop__profile-actions">
                                     <h3>Gerir a minha posicao</h3>
                                     <p>{activeClientModal.queue.name}</p>
+
+                                    {activeServiceCountdown && (
+                                        <div
+                                            className={`shop__profile-detail shop__profile-detail--timer${
+                                                activeServiceCountdown.completed ? " shop__profile-detail--timer-finished" : ""
+                                            }`}
+                                        >
+                                            <span>Tempo restante</span>
+                                            <strong>
+                                                {activeServiceCountdown.completed
+                                                    ? "00:00"
+                                                    : formatCountdown(activeServiceCountdown.remainingSeconds)}
+                                            </strong>
+                                        </div>
+                                    )}
 
                                     <button
                                         type="button"
@@ -1658,6 +2200,43 @@ export default function ShopPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {serviceAutomation && serviceAutomation.remainingSeconds > 0 && (
+                <div className="shop__service-automation-overlay" aria-live="assertive">
+                    <div
+                        className={`shop__service-automation shop__service-automation--${serviceAutomation.phase}${
+                            serviceAutomationPending ? " shop__service-automation--pending" : ""
+                        }`}
+                    >
+                        <span className="shop__service-automation-label">
+                            {serviceAutomation.phase === "complete"
+                                ? "Conclusao automatica"
+                                : "Inicio automatico do proximo atendimento"}
+                        </span>
+                        <strong>{serviceAutomation.remainingSeconds}</strong>
+                        <p>{serviceAutomation.clientName}</p>
+                        <small>
+                            {serviceAutomation.phase === "complete"
+                                ? `O atendimento em ${serviceAutomation.queueName} termina em instantes.`
+                                : `O atendimento em ${serviceAutomation.queueName} vai arrancar automaticamente.`}
+                        </small>
+                        <button
+                            type="button"
+                            className={`shop__service-automation-toggle${
+                                serviceAutomation.isPaused ? " shop__service-automation-toggle--paused" : ""
+                            }`}
+                            onClick={() =>
+                                setServiceAutomation((current) =>
+                                    current ? { ...current, isPaused: !current.isPaused } : current
+                                )
+                            }
+                            disabled={Boolean(serviceAutomationPending)}
+                        >
+                            {serviceAutomation.isPaused ? "Retomar contagem" : "Pausar contagem"}
+                        </button>
                     </div>
                 </div>
             )}

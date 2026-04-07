@@ -45,7 +45,7 @@ function formatQueueDate(value?: string | null) {
 }
 
 export default function Queue() {
-    const { user: authUser, accessToken } = useAuth();
+    const { user: authUser, accessToken, authFetch } = useAuth();
     const { shops, loading, error, reload } = useShops();
     const [activeModal, setActiveModal] = useState<ClientModalState | null>(null);
     const [userSwapOffers, setUserSwapOffers] = useState<Record<string, boolean>>({});
@@ -123,11 +123,10 @@ export default function Queue() {
         setActionSuccess("");
 
         try {
-            const response = await fetch(`/api/services/${toRequestId(card.serviceId)}/leave/`, {
+            const response = await authFetch(`/api/services/${toRequestId(card.serviceId)}/leave/`, {
                 method: "POST",
                 headers: {
                     Accept: "application/json",
-                    Authorization: `Bearer ${accessToken}`,
                 },
             });
 
